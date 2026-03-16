@@ -51,7 +51,7 @@ function formatTimer(secs: number) {
 
 export default function Home() {
   const [activeNav, setActiveNav] = useState<NavView>('dashboard')
-  const [avatarMode, setAvatarMode] = useState<AvatarMode>('pet')
+  const [avatarMode, setAvatarMode] = useState<AvatarMode>('mini')
 
   const [coins, setCoins] = useState(2340)
   const [greenEnergy, setGreenEnergy] = useState(847)
