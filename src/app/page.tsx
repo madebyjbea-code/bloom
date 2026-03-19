@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import LoginGate from '../components/LoginGate.jsx'
 
 type HabitReward = {
   coins: number
@@ -196,7 +197,7 @@ export default function Home() {
   const timerButtonLabel = timerRunning ? '⏸ Pause' : timerSeconds === TIMER_PRESETS[timerPresetIdx]!.mins * 60 ? '▶ Start' : '▶ Resume'
 
   return (
-    <>
+    <LoginGate>
       <div className="app-shell">
         <nav className="sidebar" aria-label="Primary">
           <div className="sidebar-logo">B</div>
@@ -813,6 +814,6 @@ export default function Home() {
       </div>
 
       <div className={`toast ${toastVisible ? 'show' : ''}`}>{toastMsg ?? ''}</div>
-    </>
+    </LoginGate>
   )
 }
