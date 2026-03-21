@@ -1,33 +1,57 @@
-// LoginGate.jsx
+// LoginGate.jsx (Supabase-backed)
 import { useEffect, useState } from 'react'
+import { supabase } from '../lib/supabase'
 
 export default function LoginGate({ children }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
+  const [email, setEmail] = useState('')
+  const [accessCode, setAccessCode] = useState('')
+  const [error, setError] = useState('')
 
-  const APP_PASSWORD = 'springreset2024'
+  // Single shared access code for Spring Energy Reset
+  const VALID_ACCESS_CODE = 'springreset2024'
 
   useEffect(() => {
-    const saved = localStorage.getItem('bloomAccess')
-    if (saved === APP_PASSWORD) {
+    checkUser()
+  }, [])
+
+  async function checkUser() {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (session) {
       setIsAuthenticated(true)
     }
     setIsLoading(false)
-  }, [])
+  }
 
-  const handleSubmit = (e) => {
+  async function handleLogin(e) {
     e.preventDefault()
     setError('')
 
-    if (password === APP_PASSWORD) {
-      localStorage.setItem('bloomAccess', password)
-      setIsAuthenticated(true)
-    } else {
-      setError('Invalid password. Check your Spring Energy Reset guide or purchase below.')
-      setPassword('')
+    if (accessCode.trim() !== VALID_ACCESS_CODE) {
+      setError('Invalid access code. Check your Spring Energy Reset guide or purchase below.')
+      return
     }
+
+    const { error: authError } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: {
+        emailRedirectTo: window.location.origin,
+        data: {
+          source: 'bloom-app',
+        },
+      },
+    })
+
+    if (authError) {
+      setError('Error sending login link. Please double-check your email and try again.')
+      return
+    }
+
+    alert('Check your email for a secure login link to access BLOOM.')
   }
 
   if (isLoading) {
@@ -114,11 +138,12 @@ export default function LoginGate({ children }) {
               }}
             >
               This app is included with your <strong>Spring Energy Reset</strong> guide purchase.
-              Enter your access password from the guide to continue.
+              Enter your email and the <strong>access code</strong> from the guide to receive a
+              secure login link.
             </p>
           </div>
 
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleLogin}>
             <label
               style={{
                 display: 'block',
@@ -130,13 +155,50 @@ export default function LoginGate({ children }) {
                 letterSpacing: '0.5px',
               }}
             >
-              Access Password
+              Email
             </label>
             <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter password from guide"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              required
+              style={{
+                width: '100%',
+                padding: '14px',
+                borderRadius: '12px',
+                border: '1.5px solid #e8e4de',
+                marginBottom: '16px',
+                fontSize: '15px',
+                fontFamily: 'DM Sans, sans-serif',
+                transition: 'border-color 0.2s',
+                outline: 'none',
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = '#8aad8a'
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = '#e8e4de'
+              }}
+            />
+            <label
+              style={{
+                display: 'block',
+                fontSize: '12px',
+                fontWeight: '600',
+                color: '#2a2a2a',
+                marginBottom: '8px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+              }}
+            >
+              Access Code
+            </label>
+            <input
+              type="text"
+              value={accessCode}
+              onChange={(e) => setAccessCode(e.target.value)}
+              placeholder="Enter access code from guide"
               required
               style={{
                 width: '100%',

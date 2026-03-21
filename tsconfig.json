@@ -27,7 +27,7 @@
     ".next/types/**/*.ts",
     "**/*.ts",
     "**/*.tsx"
-  ],
+, "src/components/ProfileSetup.tsx.old", "src/components/Dashboard.jsx", "src/components/Dashboard.jsx"  ],
   "exclude": [
     "node_modules"
   ]
