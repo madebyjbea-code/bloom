@@ -1,259 +1,385 @@
+'use client';
+
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { getHabitsForUser } from '../lib/springProgram';
 import { useStore } from '../lib/store';
 
-const CHRONOTYPE_QUIZ = [
+// ─── QUIZ DATA ───────────────────────────────────────────
+const QUESTIONS = [
   {
-    q: "If you had NO obligations, what time would you naturally go to bed?",
-    options: [
-      { text: "9:00-10:00pm", value: "lion" },
-      { text: "10:00-11:00pm", value: "bear" },
-      { text: "11:00pm-12:00am", value: "wolf" },
-      { text: "12:00am or later", value: "dolphin" }
-    ]
+    pillar: '🕐 Body Rhythm',
+    text: 'If you had no obligations, what time would you naturally wake up?',
+    type: 'single',
+    opts: [
+      { l: 'A', t: 'Before 6:30 AM', h: 'Early riser', scores: { chrono: 'lion' } },
+      { l: 'B', t: '6:30–8:00 AM', h: 'Standard rhythm', scores: { chrono: 'bear' } },
+      { l: 'C', t: 'After 8:00 AM', h: 'Night owl', scores: { chrono: 'wolf' } },
+      { l: 'D', t: 'It varies a lot', h: 'Irregular sleeper', scores: { chrono: 'dolphin' } },
+    ],
   },
   {
-    q: "What time would you naturally wake up (no alarm)?",
-    options: [
-      { text: "5:00-6:30am", value: "lion" },
-      { text: "6:30-7:30am", value: "bear" },
-      { text: "7:30-9:00am", value: "wolf" },
-      { text: "9:00am or later", value: "dolphin" }
-    ]
+    pillar: '⚡ Energy Patterns',
+    text: 'When do you feel most mentally sharp and physically energised?',
+    type: 'single',
+    opts: [
+      { l: 'A', t: 'Early morning (before 9 AM)', scores: { energy: 'morning' } },
+      { l: 'B', t: 'Late morning to midday (9 AM–1 PM)', scores: { energy: 'midday' } },
+      { l: 'C', t: 'Afternoon (1–5 PM)', scores: { energy: 'afternoon' } },
+      { l: 'D', t: 'Evening — I hit my stride after 6 PM', scores: { energy: 'evening' } },
+    ],
   },
   {
-    q: "When do you feel MOST alert and energized?",
-    options: [
-      { text: "Early morning (5-9am)", value: "lion" },
-      { text: "Mid-morning to early afternoon (9am-2pm)", value: "bear" },
-      { text: "Late afternoon to evening (3-7pm)", value: "wolf" },
-      { text: "Evening to late night (7pm-midnight)", value: "dolphin" }
-    ]
-  }
+    pillar: '⚡ Energy Patterns',
+    text: 'Which best describes how you start your mornings?',
+    type: 'single',
+    opts: [
+      { l: 'A', t: 'Up and moving — I have a routine', h: 'Coffee, walk, or workout before most people wake', scores: { morning: 'structured' } },
+      { l: 'B', t: 'Gradual ramp — decent once I get going', h: 'Need 20–30 min to feel human', scores: { morning: 'gradual' } },
+      { l: 'C', t: 'I function on caffeine for the first hour', h: 'Rely on coffee or tea to start', scores: { morning: 'caffeine' } },
+      { l: 'D', t: 'Mornings are rough until late morning', h: 'Real alertness comes much later', scores: { morning: 'slow' } },
+    ],
+  },
+  {
+    pillar: '🍽 Nutrition Barriers',
+    text: "What's your biggest barrier to eating well consistently?",
+    type: 'single',
+    opts: [
+      { l: 'A', t: "No time — I'm too busy or exhausted to cook", scores: { nutBarrier: 'time' } },
+      { l: 'B', t: 'Boredom — I hate eating the same things', scores: { nutBarrier: 'variety' } },
+      { l: 'C', t: "Planning — I buy groceries but don't use them", scores: { nutBarrier: 'planning' } },
+      { l: 'D', t: 'Cravings or emotional eating derail me', scores: { nutBarrier: 'emotional' } },
+    ],
+  },
+  {
+    pillar: '🍽 Nutrition Barriers',
+    text: 'How do you actually prefer to handle your meals?',
+    type: 'single',
+    opts: [
+      { l: 'A', t: 'Grab-and-go — quick, minimal effort', scores: { mealStyle: 'grab' } },
+      { l: 'B', t: 'Simple recipes — 30 min or less', scores: { mealStyle: 'simple' } },
+      { l: 'C', t: 'Batch cooking — prep once, eat all week', scores: { mealStyle: 'batch' } },
+      { l: 'D', t: 'Daily cooking — I enjoy it when I have energy', scores: { mealStyle: 'daily' } },
+    ],
+  },
+  {
+    pillar: '🏃 Movement & Life',
+    text: 'What does your daily schedule look like?',
+    type: 'single',
+    opts: [
+      { l: 'A', t: 'Structured 9–5 (or similar fixed hours)', scores: { schedule: 'structured' } },
+      { l: 'B', t: 'Flexible — remote work or self-employed', scores: { schedule: 'flexible' } },
+      { l: 'C', t: 'Caregiving responsibilities — irregular windows', scores: { schedule: 'caregiver' } },
+      { l: 'D', t: 'Shift work or highly variable hours', scores: { schedule: 'shift' } },
+    ],
+  },
+  {
+    pillar: '🏃 Movement & Life',
+    text: 'How much time can you realistically carve out for movement each day?',
+    type: 'single',
+    opts: [
+      { l: 'A', t: '10–15 minutes max', scores: { movTime: 'minimal' } },
+      { l: 'B', t: '20–30 minutes — I can make it work', scores: { movTime: 'moderate' } },
+      { l: 'C', t: '45–60 minutes — I have time, need structure', scores: { movTime: 'good' } },
+      { l: 'D', t: '60+ minutes — time is not the issue', scores: { movTime: 'ample' } },
+    ],
+  },
+  {
+    pillar: '🏃 Movement & Life',
+    text: 'How would you describe your current activity level?',
+    type: 'single',
+    opts: [
+      { l: 'A', t: 'Sedentary — desk job, little movement', scores: { activity: 'sedentary' } },
+      { l: 'B', t: 'Lightly active — occasional walks, 1–2x/week', scores: { activity: 'light' } },
+      { l: 'C', t: 'Moderately active — consistent 3–4x/week', scores: { activity: 'moderate' } },
+      { l: 'D', t: 'Very active — daily movement, 5+/week', scores: { activity: 'active' } },
+    ],
+  },
+  {
+    pillar: '🧠 Stress & Mindset',
+    text: "When you're stressed, what happens in your body and mind?",
+    type: 'single',
+    opts: [
+      { l: 'A', t: 'Physical — tension, headaches, jaw clenching', scores: { stress: 'physical' } },
+      { l: 'B', t: 'Mental — racing thoughts, overthinking', scores: { stress: 'mental' } },
+      { l: 'C', t: 'Digestive or sleep disruption', scores: { stress: 'gut' } },
+      { l: 'D', t: 'Emotional — irritability, overwhelm, tearfulness', scores: { stress: 'emotional' } },
+    ],
+  },
+ {
+    pillar: '🧠 Stress & Mindset',
+    text: 'Do you have any consistent practices for managing stress?',
+    type: 'single',
+    opts: [
+      { l: 'A', t: 'Yes — meditation, journalling, nature walks are regular', scores: { stressMgmt: 'strong' } },
+      { l: 'B', t: 'Sometimes — but it is inconsistent', scores: { stressMgmt: 'occasional' } },
+      { l: 'C', t: 'Rarely — I usually distract myself', scores: { stressMgmt: 'distract' } },
+      { l: 'D', t: 'No — I do not really know how to decompress', scores: { stressMgmt: 'none' } },
+    ],
+  },
+  {
+    pillar: '🧠 Stress & Mindset',
+    text: 'Which of these feel true for you right now?',
+    type: 'multi',
+    opts: [
+      { l: 'A', t: 'Exhausted even after a full night of sleep', scores: { drain: 'sleep' } },
+      { l: 'B', t: 'I know what I need to do but cannot seem to start', scores: { drain: 'inertia' } },
+      { l: 'C', t: 'I feel emotionally flat or unmotivated most days', scores: { drain: 'mood' } },
+      { l: 'D', t: 'I am ready for a real change — I just need structure', scores: { drain: 'ready' } },
+    ],
+  },
+  {
+    pillar: '🌱 Your Starting Point',
+    text: 'How established is your current wellness routine?',
+    type: 'single',
+    opts: [
+      { l: 'A', t: 'Just getting started — no real routine yet', h: 'Foundation · 10–15 min/day', scores: { level: 'foundation' } },
+      { l: 'B', t: 'Some habits in place — inconsistent but trying', h: 'Building · 20–30 min/day', scores: { level: 'building' } },
+      { l: 'C', t: 'Consistent habits — I want to level up', h: 'Optimisation · 30–45+ min/day', scores: { level: 'optimization' } },
+    ],
+  },
+  {
+    pillar: '🎯 Spring Goals',
+    text: 'What matters most to you this spring?',
+    type: 'multi',
+    opts: [
+      { l: 'A', t: 'Sustained energy throughout the day', scores: { goal: 'energy' } },
+      { l: 'B', t: 'Better mood and mental clarity', scores: { goal: 'mood' } },
+      { l: 'C', t: 'Improved sleep quality', scores: { goal: 'sleep' } },
+      { l: 'D', t: 'Building consistent movement habits', scores: { goal: 'movement' } },
+    ],
+  },
 ];
 
-const LIFESTYLE_QUIZ = [
-  {
-    q: "Do you eat breakfast within 2 hours of waking?",
-    options: [
-      { text: "Rarely/never", value: "foundation" },
-      { text: "Sometimes (2-3 days/week)", value: "building" },
-      { text: "Usually (4-5 days/week)", value: "optimization" },
-      { text: "Always (6-7 days/week)", value: "optimization" }
-    ]
-  },
-  {
-    q: "How much time can you dedicate to wellness habits daily?",
-    options: [
-      { text: "10-15 minutes max", value: "foundation" },
-      { text: "20-30 minutes", value: "building" },
-      { text: "45-60 minutes", value: "optimization" },
-      { text: "60+ minutes", value: "optimization" }
-    ]
-  },
-  {
-    q: "Current activity level?",
-    options: [
-      { text: "Sedentary - minimal movement", value: "foundation" },
-      { text: "Lightly active - 1-2x/week", value: "building" },
-      { text: "Moderately active - 3-4x/week", value: "optimization" },
-      { text: "Very active - 5+ days/week", value: "optimization" }
-    ]
-  }
-];
+// ─── ARCHETYPE ENGINE ─────────────────────────────────────
+function deriveArchetype(s) {
+  const isBurnedOut =
+    s.drain.includes('sleep') ||
+    s.drain.includes('mood') ||
+    s.stressMgmt === 'none' ||
+    s.stressMgmt === 'distract';
+  const isNightOwl = s.chrono === 'wolf';
+  const isEarlyRiser = s.chrono === 'lion';
+  const isIrregular = s.chrono === 'dolphin';
+  const isOptimiser = s.level === 'optimization';
+  const isFoundation = s.level === 'foundation';
+  const isTimeConstrained = s.movTime === 'minimal' || s.movTime === 'moderate';
+  const isSedentary = s.activity === 'sedentary' || s.activity === 'light';
+  const isEmotionalEater = s.nutBarrier === 'emotional';
+  const isStressHead = s.stress === 'mental' || s.stress === 'emotional';
+  const hasMoodGoal = s.goals.includes('mood');
 
+  if (isBurnedOut && (isStressHead || s.stress === 'emotional')) return 'burnout';
+  if (isNightOwl && isSedentary) return 'nightowl';
+  if (isEarlyRiser && isOptimiser) return 'optimizer';
+  if (isIrregular && isBurnedOut) return 'scattered';
+  if (isEmotionalEater && hasMoodGoal) return 'nurturer';
+  if (isTimeConstrained && isSedentary && isFoundation) return 'rebuilder';
+  if (s.morning === 'slow' || s.morning === 'caffeine') return 'slowstarter';
+  return 'steadybuilder';
+}
+
+const ARCHETYPES = {
+  burnout:      { name: 'The Burnt-Out Rebuilder',   icon: '🌙', chrono: null },
+  nightowl:     { name: 'The Night Bloom',            icon: '🌙', chrono: 'wolf' },
+  optimizer:    { name: 'The Energised Optimizer',    icon: '⚡', chrono: 'lion' },
+  scattered:    { name: 'The Scattered Spark',        icon: '🌀', chrono: 'dolphin' },
+  nurturer:     { name: 'The Nourishment Seeker',     icon: '🌸', chrono: null },
+  rebuilder:    { name: 'The Gentle Rebuilder',       icon: '🌱', chrono: null },
+  slowstarter:  { name: 'The Slow-Start Bloomer',     icon: '☀️', chrono: null },
+  steadybuilder:{ name: 'The Steady Builder',         icon: '🌿', chrono: 'bear' },
+};
+
+// Map archetype → closest springProgram chronotype
+const ARCHETYPE_CHRONO = {
+  burnout:       'bear',
+  nightowl:      'wolf',
+  optimizer:     'lion',
+  scattered:     'dolphin',
+  nurturer:      'bear',
+  rebuilder:     'bear',
+  slowstarter:   'bear',
+  steadybuilder: 'bear',
+};
+
+// ─── COMPONENT ────────────────────────────────────────────
 export default function Onboarding({ onComplete }) {
-  const [step, setStep] = useState(1);
-  const [accessCode, setAccessCode] = useState('');
+  const [phase, setPhase] = useState('intro'); // intro | quiz | name
+  const [current, setCurrent] = useState(0);
+  const [answers, setAnswers] = useState(new Array(QUESTIONS.length).fill(null));
+  const [collectedScores, setCollectedScores] = useState({});
   const [name, setName] = useState('');
+  const [accessCode, setAccessCode] = useState('');
   const [avatarType, setAvatarType] = useState('pet');
-  const [avatarName, setAvatarName] = useState('');
-  const [chronotypeAnswers, setChronotypeAnswers] = useState([]);
-  const [lifestyleAnswers, setLifestyleAnswers] = useState([]);
+  const [avatarName, setAvatarName] = useState('Fern');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const setUser = useStore(state => state.setUser);
-  const setHabits = useStore(state => state.setHabits);
+  const setUser = useStore((s) => s.setUser);
+  const setHabits = useStore((s) => s.setHabits);
 
-  // Step 1: Access Code
-  async function handleAccessCode(e) {
+  const q = QUESTIONS[current];
+  const isMulti = q?.type === 'multi';
+  const pct = Math.round((current / QUESTIONS.length) * 100);
+  const hasAnswer =
+    answers[current] !== null &&
+    !(Array.isArray(answers[current]) && answers[current].length === 0);
+
+  // ── Option select ──
+  function selectOpt(idx) {
+    if (isMulti) {
+      const prev = Array.isArray(answers[current]) ? [...answers[current]] : [];
+      const pos = prev.indexOf(idx);
+      const next = pos === -1 ? [...prev, idx] : prev.filter((i) => i !== pos);
+      const updated = [...answers];
+      updated[current] = next.length > 0 ? next : null;
+      setAnswers(updated);
+    } else {
+      const updated = [...answers];
+      updated[current] = idx;
+      setAnswers(updated);
+    }
+  }
+
+  // ── Next question ──
+  function handleNext() {
+    const ans = answers[current];
+    const newScores = { ...collectedScores };
+
+    const collect = (idx) => {
+      const s = q.opts[idx].scores;
+      Object.entries(s).forEach(([k, v]) => {
+        if (!newScores[k]) newScores[k] = [];
+        newScores[k].push(v);
+      });
+    };
+
+    if (Array.isArray(ans)) ans.forEach(collect);
+    else collect(ans);
+
+    setCollectedScores(newScores);
+
+    if (current < QUESTIONS.length - 1) {
+      setCurrent(current + 1);
+    } else {
+      setPhase('name');
+    }
+  }
+
+  function handleBack() {
+    if (current > 0) setCurrent(current - 1);
+  }
+
+  // ── Finish — create user in Supabase ──
+  async function handleFinish(e) {
     e.preventDefault();
     setIsLoading(true);
+    setError('');
+
+    if (!name.trim()) {
+      setError('Please enter your name.');
+      setIsLoading(false);
+      return;
+    }
+    if (!accessCode.trim()) {
+      setError('Please enter your access code.');
+      setIsLoading(false);
+      return;
+    }
 
     try {
-      // Check if access code exists
-      const { data, error } = await supabase
+      // Check for existing user with this access code
+      const { data: existing } = await supabase
         .from('users')
         .select('*')
-        .eq('access_code', accessCode);
+        .eq('access_code', accessCode.trim().toLowerCase())
+        .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Error checking access code:', error);
-        alert('Error checking access code. Please try again.');
-        setIsLoading(false);
-        return;
-      }
-
-      if (data && data.length > 0) {
-        // Found existing user(s) with this code
-        // Sort by most recent (in case multiple users have same code)
-        const existingUser = data.sort((a, b) => 
-          new Date(b.created_at) - new Date(a.created_at)
-        )[0];
-
-        // Ask user if they want to continue or start fresh
+      if (existing && existing.length > 0) {
         const shouldContinue = window.confirm(
-          `Found existing account: "${existingUser.name || 'Unnamed'}"\n\nClick OK to continue your program, or Cancel to create a new account.`
+          `Found existing account: "${existing[0].name}"\n\nClick OK to continue your program, or Cancel to start fresh.`
         );
 
         if (shouldContinue) {
-          // Load existing user data
-          console.log('Loading existing user:', existingUser);
-
-          setUser({
-            userId: existingUser.id,
-            accessCode: existingUser.access_code,
-            name: existingUser.name,
-            avatarType: existingUser.avatar_type,
-            avatarName: existingUser.avatar_name,
-            avatarEmoji: existingUser.avatar_emoji,
-            chronotype: existingUser.chronotype,
-            lifestyleLevel: existingUser.lifestyle_level
-          });
-
-          // Load stats
+          const u = existing[0];
           const { data: stats } = await supabase
             .from('user_stats')
             .select('*')
-            .eq('user_id', existingUser.id)
+            .eq('user_id', u.id)
             .single();
 
-          if (stats) {
             setUser({
-              health: stats.health,
-              coins: stats.coins,
-              greenEnergy: stats.green_energy,
-              level: stats.level
+              userId: user.id,
+              accessCode: user.access_code,
+              name: user.name,
+              avatarType: user.avatar_type,
+              avatarName: user.avatar_name,
+              avatarEmoji: user.avatar_emoji,
+              chronotype,
+              lifestyleLevel: s.level,
+              archetypeKey,
+              archetypeName: archetype.name,
+              archetypeIcon: archetype.icon,
+              health: stats?.health ?? 78,
+              coins: stats?.coins ?? 0,
+              greenEnergy: stats?.green_energy ?? 0,
+              level: stats?.level ?? 1,
             });
-          }
 
-          // Load habits based on their week
-          const week = existingUser.current_week || 1;
-          const habits = getHabitsForUser(existingUser.chronotype, week);
+          const habits = getHabitsForUser(archetypeKey, 1);
           setHabits(habits);
-
-          // Complete onboarding
           onComplete();
-        } else {
-          // User wants to create new account with same code
-          console.log('User chose to create new account');
-          setStep(2);
+          return;
         }
-      } else {
-        // No existing user found - new signup
-        console.log('New user, proceeding to profile setup');
-        setStep(2);
       }
-    } catch (err) {
-      console.error('Unexpected error:', err);
-      alert('Something went wrong. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  }
 
-  // Step 2: Name & Avatar
-  function handleProfile(e) {
-    e.preventDefault();
-    setStep(3);
-  }
-
-  // Step 3: Chronotype Quiz
-  function handleChronotypeAnswer(answer) {
-    const newAnswers = [...chronotypeAnswers, answer];
-    setChronotypeAnswers(newAnswers);
-
-    if (newAnswers.length === CHRONOTYPE_QUIZ.length) {
-      setStep(4);
-    }
-  }
-
-  // Step 4: Lifestyle Quiz
-  function handleLifestyleAnswer(answer) {
-    const newAnswers = [...lifestyleAnswers, answer];
-    setLifestyleAnswers(newAnswers);
-
-    if (newAnswers.length === LIFESTYLE_QUIZ.length) {
-      createUser();
-    }
-  }
-
-  // Create user in database
-  async function createUser() {
-    setIsLoading(true);
-
-    try {
-      const chronotype = chronotypeAnswers.sort((a,b) =>
-        chronotypeAnswers.filter(v => v === a).length - chronotypeAnswers.filter(v => v === b).length
-      ).pop();
-
-      const lifestyleLevel = lifestyleAnswers.sort((a,b) =>
-        lifestyleAnswers.filter(v => v === a).length - lifestyleAnswers.filter(v => v === b).length
-      ).pop();
-
-      const avatarEmojis = {
-        pet: '🦔',
-        'mini-me': '🧑‍🌿',
-        simple: '📊'
+      // Derive archetype from collected scores
+      const s = {
+        chrono: (collectedScores.chrono || ['bear'])[0],
+        level: (collectedScores.level || ['building'])[0],
+        energy: (collectedScores.energy || ['midday'])[0],
+        nutBarrier: (collectedScores.nutBarrier || ['time'])[0],
+        movTime: (collectedScores.movTime || ['moderate'])[0],
+        activity: (collectedScores.activity || ['light'])[0],
+        stress: (collectedScores.stress || ['mental'])[0],
+        stressMgmt: (collectedScores.stressMgmt || ['occasional'])[0],
+        morning: (collectedScores.morning || ['gradual'])[0],
+        goals: collectedScores.goal || ['energy'],
+        drain: collectedScores.drain || [],
       };
 
-      console.log('Creating user with:', {
-        access_code: accessCode,
-        name: name,
-        avatar_type: avatarType,
-        chronotype: chronotype,
-        lifestyle_level: lifestyleLevel
-      });
+      const archetypeKey = deriveArchetype(s);
+      const archetype = ARCHETYPES[archetypeKey];
+      const chronotype = ARCHETYPE_CHRONO[archetypeKey] || s.chrono;
 
-      const { data: user, error } = await supabase
+      const avatarEmojis = { pet: '🦔', 'mini-me': '🧑‍🌿', simple: '📊' };
+
+      // Create user row
+      const { data: user, error: createErr } = await supabase
         .from('users')
         .insert({
-          access_code: accessCode,
-          name: name,
+          access_code: accessCode.trim().toLowerCase(),
+          name: name.trim(),
           avatar_type: avatarType,
-          avatar_name: avatarName || (avatarType === 'pet' ? 'Fern' : name),
-          avatar_emoji: avatarEmojis[avatarType],
-          chronotype: chronotype,
-          lifestyle_level: lifestyleLevel
+          avatar_name: avatarType === 'pet' ? avatarName || 'Fern' : null,
+          avatar_emoji: avatarEmojis[avatarType] || '🦔',
+          chronotype,
+          lifestyle_level: s.level,
+          current_week: 1,
+          program_start_date: new Date().toISOString(),
         })
         .select()
         .single();
 
-      if (error) {
-        console.error('Error creating user:', error);
-        alert(`Failed to create user: ${error.message}`);
-        setIsLoading(false);
-        return;
-      }
+      if (createErr) throw createErr;
 
-      console.log('User created:', user);
-
-      // Set program start date to today
-await supabase
-.from('users')
-.update({ program_start_date: new Date().toISOString() })
-.eq('id', user.id);
-
-      await supabase
+      // user_stats row is auto-created by DB trigger
+      // but fetch it to confirm
+      const { data: stats } = await supabase
         .from('user_stats')
-        .insert({
-          user_id: user.id,
-          health: 78,
-          coins: 0,
-          green_energy: 0,
-          level: 1
-        });
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
 
       setUser({
         userId: user.id,
@@ -262,252 +388,325 @@ await supabase
         avatarType: user.avatar_type,
         avatarName: user.avatar_name,
         avatarEmoji: user.avatar_emoji,
-        chronotype: user.chronotype,
-        lifestyleLevel: user.lifestyle_level,
-        health: 78,
-        coins: 0,
-        greenEnergy: 0,
-        level: 1
+        chronotype,
+        lifestyleLevel: s.level,
+        health: stats?.health ?? 78,
+        coins: stats?.coins ?? 0,
+        greenEnergy: stats?.green_energy ?? 0,
+        level: stats?.level ?? 1,
       });
 
-      const habits = getHabitsForUser(chronotype, lifestyleLevel);
-      setHabits(habits);
+      // Post welcome message to community
+      await supabase.from('community_posts').insert({
+        user_id: user.id,
+        user_name: user.name,
+        user_avatar_emoji: user.avatar_emoji,
+        content: `Just joined the Spring Reset as ${archetype.icon} ${archetype.name}! Let's bloom 🌱`,
+        post_type: 'milestone',
+      });
 
+      const habits = getHabitsForUser(chronotype, 1);
+      setHabits(habits);
       onComplete();
     } catch (err) {
-      console.error('Error:', err);
-      alert('Something went wrong. Please try again.');
+      console.error(err);
+      setError('Something went wrong. Please try again.');
     } finally {
       setIsLoading(false);
     }
   }
 
-  // STEP 1: Access Code
-  if (step === 1) {
+  // ─────────────────────────────────────────────────────────
+  // RENDER: INTRO
+  // ─────────────────────────────────────────────────────────
+  if (phase === 'intro') {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f7f3ed', padding: '20px' }}>
-        <div style={{ maxWidth: '440px', width: '100%', padding: '40px', background: 'white', borderRadius: '20px', border: '1.5px solid #e8e4de' }}>
-          <h1 style={{ fontFamily: 'Instrument Serif, serif', fontSize: '36px', textAlign: 'center', marginBottom: '8px' }}>
-            🌱 WELL with J Bea
-          </h1>
-          <p style={{ textAlign: 'center', color: '#888', fontSize: '13px', marginBottom: '30px' }}>
-            Spring Energy Reset Program
-          </p>
-          
-          <form onSubmit={handleAccessCode}>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase' }}>
-              Access Code
-            </label>
-            <input
-              type="text"
-              value={accessCode}
-              onChange={(e) => setAccessCode(e.target.value)}
-              placeholder="Enter code from your guide"
-              required
-              style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '1.5px solid #e8e4de', marginBottom: '16px', fontSize: '15px' }}
-            />
-            
-            <button type="submit" disabled={isLoading} style={{ width: '100%', padding: '14px', background: '#8aad8a', color: 'white', border: 'none', borderRadius: '12px', fontSize: '15px', fontWeight: '600', cursor: 'pointer' }}>
-              {isLoading ? 'Checking...' : 'Continue →'}
-            </button>
-          </form>
+      <div style={styles.page}>
+        <div style={styles.container}>
+          <div style={styles.logoBar}>
+            <span style={styles.logo}>BLOOM</span>
+            <span style={styles.pill}>🌿 Spring Reset</span>
+          </div>
 
-          <p style={{ textAlign: 'center', marginTop: '20px', fontSize: '13px', color: '#888' }}>
-            Don't have a code?{' '}
-            <a href="https://yoursite.com/guide" style={{ color: '#8aad8a' }}>Get the guide</a>
+          <div style={styles.introEyebrow}>Precision Wellness · Spring 2026</div>
+          <h1 style={styles.introH1}>
+            Discover your{' '}
+            <em style={{ color: 'var(--sage)', fontStyle: 'italic' }}>
+              Wellness Archetype
+            </em>
+          </h1>
+          <p style={styles.introLead}>
+            Most wellness programs give everyone the same plan. BLOOM does not.
+            Your 4-week Spring Reset is built from your actual biology, schedule,
+            stress patterns, and goals — not a generic template.
           </p>
+
+          <div style={styles.precisionBlock}>
+            <p style={styles.precisionP}>
+              This 13-question assessment maps your{' '}
+              <strong style={{ color: 'var(--sage-dark)', fontWeight: 600 }}>chronotype</strong> (your
+              body clock),{' '}
+              <strong style={{ color: 'var(--sage-dark)', fontWeight: 600 }}>lifestyle barriers</strong>{' '}
+              (what actually stops you),{' '}
+              <strong style={{ color: 'var(--sage-dark)', fontWeight: 600 }}>nervous system patterns</strong>{' '}
+              (how stress shows up), and{' '}
+              <strong style={{ color: 'var(--sage-dark)', fontWeight: 600 }}>energy architecture</strong>{' '}
+              (when and why you crash).
+            </p>
+            <p style={{ ...styles.precisionP, marginBottom: 0 }}>
+              The result is your{' '}
+              <strong style={{ color: 'var(--sage-dark)', fontWeight: 600 }}>Wellness Archetype</strong> —
+              one of 8 science-informed profiles that determines your program pillars, habit
+              timing, and the research behind every recommendation. No two people get the same plan.
+            </p>
+          </div>
+
+          <div style={styles.timeBadge}>⏱ 4 minutes · 13 questions · instant results</div>
+
+          <div style={styles.pillarsRow}>
+            {['🕐 Chronotype', '⚡ Energy', '🍽 Nutrition', '🏃 Movement', '🧠 Stress', '🎯 Goals'].map((p) => (
+              <span key={p} style={styles.pillarChip}>{p}</span>
+            ))}
+          </div>
+
+          <button style={styles.btnPrimary} onClick={() => setPhase('quiz')}>
+            Map my archetype →
+          </button>
         </div>
       </div>
     );
   }
 
-  // STEP 2: Profile
-  if (step === 2) {
+  // ─────────────────────────────────────────────────────────
+  // RENDER: QUIZ
+  // ─────────────────────────────────────────────────────────
+  if (phase === 'quiz') {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f7f3ed', padding: '20px' }}>
-        <div style={{ maxWidth: '440px', width: '100%', padding: '40px', background: 'white', borderRadius: '20px', border: '1.5px solid #e8e4de' }}>
-          <h2 style={{ fontFamily: 'Instrument Serif, serif', fontSize: '28px', marginBottom: '8px' }}>
-            Create Your Profile
-          </h2>
-          <p style={{ color: '#888', fontSize: '14px', marginBottom: '30px' }}>
-            Step 1 of 3
-          </p>
-          
-          <form onSubmit={handleProfile}>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase' }}>
-              Your Name
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Jordan"
-              required
-              style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '1.5px solid #e8e4de', marginBottom: '20px', fontSize: '15px' }}
-            />
+      <div style={styles.page}>
+        <div style={styles.container}>
+          <div style={styles.logoBar}>
+            <span style={styles.logo}>BLOOM</span>
+            <span style={styles.pill}>🌿 Spring Reset</span>
+          </div>
 
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '12px', textTransform: 'uppercase' }}>
-              Avatar Style
-            </label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px' }}>
-              {['pet', 'mini-me', 'simple'].map(type => (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => setAvatarType(type)}
+          {/* Progress */}
+          <div style={{ marginBottom: 28 }}>
+            <div style={styles.progMeta}>
+              <span>Question {current + 1} of {QUESTIONS.length}</span>
+              <span>{pct}%</span>
+            </div>
+            <div style={styles.progBar}>
+              <div style={{ ...styles.progFill, width: `${pct}%` }} />
+            </div>
+            <div style={styles.dotRow}>
+              {QUESTIONS.map((_, i) => (
+                <div
+                  key={i}
                   style={{
-                    padding: '16px',
-                    borderRadius: '12px',
-                    border: `2px solid ${avatarType === type ? '#8aad8a' : '#e8e4de'}`,
-                    background: avatarType === type ? '#f3f8f3' : 'white',
-                    cursor: 'pointer',
-                    fontSize: '24px',
-                    textAlign: 'center'
+                    ...styles.dot,
+                    background: i < current ? 'var(--sage-light)' : i === current ? 'var(--sage)' : '#e8e4de',
+                    transform: i === current ? 'scale(1.4)' : 'scale(1)',
                   }}
-                >
-                  {type === 'pet' ? '🦔' : type === 'mini-me' ? '🧑‍🌿' : '📊'}
-                  <div style={{ fontSize: '11px', marginTop: '8px', textTransform: 'capitalize', color: '#888' }}>
-                    {type}
-                  </div>
-                </button>
+                />
               ))}
             </div>
+          </div>
 
-            {avatarType === 'pet' && (
-              <>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase' }}>
-                  Pet Name
-                </label>
-                <input
-                  type="text"
-                  value={avatarName}
-                  onChange={(e) => setAvatarName(e.target.value)}
-                  placeholder="Fern"
-                  style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '1.5px solid #e8e4de', marginBottom: '20px', fontSize: '15px' }}
-                />
-              </>
+          {/* Question card */}
+          <div style={styles.qCard}>
+            <div style={styles.pillarTag}>
+              <div style={styles.pillarDot} />
+              <span>{q.pillar}</span>
+            </div>
+            <div style={styles.qNum}>
+              {String(current + 1).padStart(2, '0')}
+            </div>
+            <div style={styles.qText}>{q.text}</div>
+
+            {isMulti && (
+              <div style={{ fontSize: 12, color: '#aaa', textAlign: 'center', marginBottom: 12, fontStyle: 'italic' }}>
+                Select all that apply
+              </div>
             )}
 
-            <button type="submit" style={{ width: '100%', padding: '14px', background: '#8aad8a', color: 'white', border: 'none', borderRadius: '12px', fontSize: '15px', fontWeight: '600', cursor: 'pointer' }}>
-              Continue →
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              {q.opts.map((opt, idx) => {
+                const sel = Array.isArray(answers[current])
+                  ? answers[current].includes(idx)
+                  : answers[current] === idx;
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => selectOpt(idx)}
+                    style={{
+                      ...styles.optBtn,
+                      borderColor: sel ? 'var(--sage)' : '#e8e4de',
+                      background: sel ? '#f3f8f3' : 'white',
+                    }}
+                  >
+                    <div style={{
+                      ...styles.optLetter,
+                      background: sel ? 'var(--sage)' : 'transparent',
+                      borderColor: sel ? 'var(--sage)' : '#e8e4de',
+                      color: sel ? 'white' : '#888',
+                    }}>
+                      {opt.l}
+                    </div>
+                    <div style={{ flex: 1, textAlign: 'left' }}>
+                      <div style={{ fontSize: 14, color: '#2a2a2a' }}>{opt.t}</div>
+                      {opt.h && (
+                        <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>{opt.h}</div>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
 
-  // STEP 3: Chronotype Quiz
-  if (step === 3) {
-    const questionIndex = chronotypeAnswers.length;
-    
-    // If we've answered all questions, move to next step
-    if (questionIndex >= CHRONOTYPE_QUIZ.length) {
-      setStep(4);
-      return null;
-    }
-
-    const currentQ = CHRONOTYPE_QUIZ[questionIndex];
-    
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f7f3ed', padding: '20px' }}>
-        <div style={{ maxWidth: '540px', width: '100%', padding: '40px', background: 'white', borderRadius: '20px', border: '1.5px solid #e8e4de' }}>
-          <h2 style={{ fontFamily: 'Instrument Serif, serif', fontSize: '28px', marginBottom: '8px' }}>
-            Find Your Chronotype
-          </h2>
-          <p style={{ color: '#888', fontSize: '14px', marginBottom: '30px' }}>
-            Step 2 of 3 · Question {questionIndex + 1} of {CHRONOTYPE_QUIZ.length}
-          </p>
-
-          <p style={{ fontSize: '16px', marginBottom: '24px', lineHeight: '1.5' }}>
-            {currentQ.q}
-          </p>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {currentQ.options.map((option, i) => (
+            <div style={styles.navRow}>
+              {current > 0 ? (
+                <button style={styles.btnGhost} onClick={handleBack}>← Back</button>
+              ) : (
+                <div />
+              )}
               <button
-                key={i}
-                onClick={() => handleChronotypeAnswer(option.value)}
                 style={{
-                  padding: '16px',
-                  borderRadius: '12px',
-                  border: '1.5px solid #e8e4de',
-                  background: 'white',
-                  cursor: 'pointer',
-                  fontSize: '15px',
-                  textAlign: 'left',
-                  transition: 'all 0.2s'
+                  ...styles.btnPrimary,
+                  flex: 1,
+                  maxWidth: 200,
+                  opacity: hasAnswer ? 1 : 0.4,
+                  cursor: hasAnswer ? 'pointer' : 'not-allowed',
                 }}
-                onMouseOver={(e) => e.target.style.borderColor = '#8aad8a'}
-                onMouseOut={(e) => e.target.style.borderColor = '#e8e4de'}
+                onClick={handleNext}
+                disabled={!hasAnswer}
               >
-                {option.text}
+                {current === QUESTIONS.length - 1 ? 'Almost done →' : 'Continue →'}
               </button>
-            ))}
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
-  // STEP 4: Lifestyle Quiz
-  if (step === 4) {
-    const questionIndex = lifestyleAnswers.length;
-    
-    // If we've answered all questions, createUser is already triggered
-    if (questionIndex >= LIFESTYLE_QUIZ.length) {
-      return (
-        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f7f3ed' }}>
-          <p style={{ fontSize: '16px', color: '#888' }}>Creating your program...</p>
-        </div>
-      );
-    }
-
-    const currentQ = LIFESTYLE_QUIZ[questionIndex];
-    
+  // ─────────────────────────────────────────────────────────
+  // RENDER: NAME + ACCESS CODE
+  // ─────────────────────────────────────────────────────────
+  if (phase === 'name') {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f7f3ed', padding: '20px' }}>
-        <div style={{ maxWidth: '540px', width: '100%', padding: '40px', background: 'white', borderRadius: '20px', border: '1.5px solid #e8e4de' }}>
-          <h2 style={{ fontFamily: 'Instrument Serif, serif', fontSize: '28px', marginBottom: '8px' }}>
-            Customize Your Program
-          </h2>
-          <p style={{ color: '#888', fontSize: '14px', marginBottom: '30px' }}>
-            Step 3 of 3 · Question {questionIndex + 1} of {LIFESTYLE_QUIZ.length}
-          </p>
-
-          <p style={{ fontSize: '16px', marginBottom: '24px', lineHeight: '1.5' }}>
-            {currentQ.q}
-          </p>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {currentQ.options.map((option, i) => (
-              <button
-                key={i}
-                onClick={() => handleLifestyleAnswer(option.value)}
-                disabled={isLoading}
-                style={{
-                  padding: '16px',
-                  borderRadius: '12px',
-                  border: '1.5px solid #e8e4de',
-                  background: 'white',
-                  cursor: isLoading ? 'not-allowed' : 'pointer',
-                  fontSize: '15px',
-                  textAlign: 'left',
-                  opacity: isLoading ? 0.5 : 1
-                }}
-                onMouseOver={(e) => !isLoading && (e.target.style.borderColor = '#8aad8a')}
-                onMouseOut={(e) => !isLoading && (e.target.style.borderColor = '#e8e4de')}
-              >
-                {option.text}
-              </button>
-            ))}
+      <div style={styles.page}>
+        <div style={styles.container}>
+          <div style={styles.logoBar}>
+            <span style={styles.logo}>BLOOM</span>
           </div>
 
-          {isLoading && (
-            <p style={{ textAlign: 'center', marginTop: '20px', color: '#888', fontSize: '14px' }}>
-              Creating your personalized program...
-            </p>
-          )}
+          <div style={styles.qCard}>
+            <div style={styles.pillarTag}>
+              <div style={styles.pillarDot} />
+              <span>Almost there</span>
+            </div>
+            <div style={styles.qText}>One last thing — what should we call you?</div>
+
+            <form onSubmit={handleFinish} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={styles.inputLabel}>Your name</label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Jordan"
+                  required
+                  style={styles.input}
+                  onFocus={(e) => (e.target.style.borderColor = 'var(--sage)')}
+                  onBlur={(e) => (e.target.style.borderColor = '#e8e4de')}
+                />
+              </div>
+
+              <div>
+                <label style={styles.inputLabel}>Access code</label>
+                <input
+                  type="text"
+                  value={accessCode}
+                  onChange={(e) => setAccessCode(e.target.value)}
+                  placeholder="Enter code from your guide"
+                  required
+                  style={styles.input}
+                  onFocus={(e) => (e.target.style.borderColor = 'var(--sage)')}
+                  onBlur={(e) => (e.target.style.borderColor = '#e8e4de')}
+                />
+              </div>
+
+              <div>
+                <label style={styles.inputLabel}>Avatar style</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                  {[
+                    { key: 'pet', icon: '🦔', label: 'Pet' },
+                    { key: 'mini-me', icon: '🧑‍🌿', label: 'Mini-Me' },
+                    { key: 'simple', icon: '📊', label: 'Simple' },
+                  ].map(({ key, icon, label }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setAvatarType(key)}
+                      style={{
+                        padding: '14px 8px',
+                        borderRadius: 12,
+                        border: `2px solid ${avatarType === key ? 'var(--sage)' : '#e8e4de'}`,
+                        background: avatarType === key ? '#f3f8f3' : 'white',
+                        cursor: 'pointer',
+                        fontSize: 28,
+                        textAlign: 'center',
+                      }}
+                    >
+                      {icon}
+                      <div style={{ fontSize: 11, marginTop: 6, color: '#888' }}>{label}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {avatarType === 'pet' && (
+                <div>
+                  <label style={styles.inputLabel}>Pet name</label>
+                  <input
+                    type="text"
+                    value={avatarName}
+                    onChange={(e) => setAvatarName(e.target.value)}
+                    placeholder="Fern"
+                    style={styles.input}
+                    onFocus={(e) => (e.target.style.borderColor = 'var(--sage)')}
+                    onBlur={(e) => (e.target.style.borderColor = '#e8e4de')}
+                  />
+                </div>
+              )}
+
+              {error && (
+                <div style={{ background: '#fff5f5', border: '1.5px solid #e07070', borderRadius: 10, padding: '12px 14px' }}>
+                  <p style={{ color: '#e07070', fontSize: 13, margin: 0 }}>{error}</p>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                <button type="button" style={styles.btnGhost} onClick={() => setPhase('quiz')}>
+                  ← Back
+                </button>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  style={{ ...styles.btnPrimary, flex: 1, opacity: isLoading ? 0.6 : 1 }}
+                >
+                  {isLoading ? 'Creating your program...' : 'See my archetype ✨'}
+                </button>
+              </div>
+
+              <p style={{ textAlign: 'center', fontSize: 13, color: '#aaa', marginTop: 4 }}>
+                Do not have a code?{' '}
+                <a href="https://byjbea.myshopify.com" style={{ color: 'var(--sage)' }}>
+                  Get the guide →
+                </a>
+              </p>
+            </form>
+          </div>
         </div>
       </div>
     );
@@ -515,3 +714,267 @@ await supabase
 
   return null;
 }
+
+// ─── STYLES ──────────────────────────────────────────────
+const styles = {
+  page: {
+    minHeight: '100vh',
+    background: 'var(--cream)',
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    padding: '0 0 60px',
+    overflowX: 'hidden',
+  },
+  container: {
+    maxWidth: 580,
+    width: '100%',
+    padding: '40px 24px',
+    position: 'relative',
+  },
+  logoBar: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 36,
+  },
+  logo: {
+    fontFamily: 'Syne, sans-serif',
+    fontSize: 15,
+    fontWeight: 800,
+    color: 'var(--sage-dark)',
+    letterSpacing: 3,
+    textTransform: 'uppercase',
+  },
+  pill: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    background: 'var(--sage-dark)',
+    color: 'white',
+    fontSize: 11,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    padding: '5px 14px',
+    borderRadius: 99,
+    fontWeight: 500,
+  },
+  introEyebrow: {
+    fontSize: 11,
+    fontWeight: 600,
+    letterSpacing: '2.5px',
+    textTransform: 'uppercase',
+    color: 'var(--sage)',
+    marginBottom: 12,
+  },
+  introH1: {
+    fontFamily: 'Instrument Serif, serif',
+    fontSize: 'clamp(2rem, 5vw, 3rem)',
+    fontWeight: 400,
+    lineHeight: 1.15,
+    color: 'var(--soft-black)',
+    marginBottom: 18,
+  },
+  introLead: {
+    fontSize: 15,
+    color: '#666',
+    lineHeight: 1.7,
+    marginBottom: 10,
+    fontWeight: 300,
+  },
+  precisionBlock: {
+    background: '#f3f8f3',
+    border: '1px solid var(--sage-light)',
+    borderRadius: 14,
+    padding: '18px 20px',
+    margin: '20px 0',
+  },
+  precisionP: {
+    fontSize: 13,
+    color: '#555',
+    lineHeight: 1.7,
+    marginBottom: 10,
+  },
+  timeBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 7,
+    background: 'white',
+    border: '1.5px solid var(--border)',
+    borderRadius: 99,
+    padding: '7px 16px',
+    fontSize: 12,
+    color: '#888',
+    margin: '14px 0 20px',
+  },
+  pillarsRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 28,
+  },
+  pillarChip: {
+    background: 'white',
+    border: '1.5px solid var(--border)',
+    borderRadius: 99,
+    padding: '5px 14px',
+    fontSize: 12,
+    color: 'var(--sage-dark)',
+    fontWeight: 500,
+  },
+  btnPrimary: {
+    width: '100%',
+    padding: '14px 28px',
+    background: 'var(--sage)',
+    color: 'white',
+    border: 'none',
+    borderRadius: 12,
+    fontSize: 15,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif',
+    transition: 'all 0.2s',
+  },
+  btnGhost: {
+    padding: '13px 20px',
+    background: 'transparent',
+    color: '#888',
+    border: '1.5px solid var(--border)',
+    borderRadius: 12,
+    fontSize: 14,
+    cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif',
+    transition: 'all 0.2s',
+  },
+  progMeta: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: 11,
+    color: '#aaa',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  progBar: {
+    height: 4,
+    background: '#e8e4de',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progFill: {
+    height: '100%',
+    background: 'linear-gradient(90deg, var(--sage), var(--gold))',
+    borderRadius: 2,
+    transition: 'width 0.5s ease',
+  },
+  dotRow: {
+    display: 'flex',
+    gap: 5,
+    marginTop: 10,
+    justifyContent: 'center',
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: '50%',
+    transition: 'all 0.3s',
+  },
+  qCard: {
+    background: 'white',
+    borderRadius: 20,
+    padding: '32px 28px 26px',
+    boxShadow: '0 2px 4px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.06)',
+    border: '1px solid rgba(122,158,126,0.15)',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  pillarTag: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    background: '#f3f8f3',
+    border: '1px solid var(--sage-light)',
+    borderRadius: 99,
+    padding: '4px 13px',
+    fontSize: 11,
+    color: 'var(--sage-dark)',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    fontWeight: 500,
+    marginBottom: 16,
+  },
+  pillarDot: {
+    width: 5,
+    height: 5,
+    borderRadius: '50%',
+    background: 'var(--sage)',
+  },
+  qNum: {
+    fontSize: 11,
+    color: '#ccc',
+    marginBottom: 8,
+    letterSpacing: 2,
+  },
+  qText: {
+    fontFamily: 'Instrument Serif, serif',
+    fontSize: 'clamp(1.2rem, 3vw, 1.5rem)',
+    fontWeight: 400,
+    lineHeight: 1.35,
+    color: 'var(--charcoal)',
+    marginBottom: 24,
+  },
+  optBtn: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 13,
+    padding: '13px 16px',
+    border: '1.5px solid',
+    borderRadius: 12,
+    cursor: 'pointer',
+    transition: 'all 0.15s',
+    width: '100%',
+    fontFamily: 'DM Sans, sans-serif',
+  },
+  optLetter: {
+    flexShrink: 0,
+    width: 26,
+    height: 26,
+    borderRadius: '50%',
+    border: '1.5px solid',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 11,
+    fontWeight: 500,
+    transition: 'all 0.2s',
+    marginTop: 1,
+  },
+  navRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 24,
+    gap: 10,
+  },
+  inputLabel: {
+    display: 'block',
+    fontSize: 11,
+    fontWeight: 600,
+    color: 'var(--charcoal)',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  input: {
+    width: '100%',
+    padding: '13px 16px',
+    borderRadius: 12,
+    border: '1.5px solid #e8e4de',
+    fontSize: 15,
+    fontFamily: 'DM Sans, sans-serif',
+    outline: 'none',
+    transition: 'border-color 0.2s',
+    background: 'white',
+    color: 'var(--charcoal)',
+  },
+};
