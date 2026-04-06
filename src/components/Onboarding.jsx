@@ -106,7 +106,7 @@ const QUESTIONS = [
       { l: 'D', t: 'Emotional — irritability, overwhelm, tearfulness', scores: { stress: 'emotional' } },
     ],
   },
- {
+  {
     pillar: '🧠 Stress & Mindset',
     text: 'Do you have any consistent practices for managing stress?',
     type: 'single',
@@ -288,49 +288,60 @@ export default function Onboarding({ onComplete }) {
     }
 
     try {
-      // Check for existing user with this access code
+      const code = accessCode.trim().toLowerCase();
+
+      // ── Step 1: Check if returning user with this code ──
       const { data: existing } = await supabase
         .from('users')
         .select('*')
-        .eq('access_code', accessCode.trim().toLowerCase())
+        .eq('access_code', code)
         .order('created_at', { ascending: false });
 
       if (existing && existing.length > 0) {
-        const shouldContinue = window.confirm(
-          `Found existing account: "${existing[0].name}"\n\nClick OK to continue your program, or Cancel to start fresh.`
-        );
+        // Returning user — restore account, skip quiz
+        const u = existing[0];
+        const { data: stats } = await supabase
+          .from('user_stats')
+          .select('*')
+          .eq('user_id', u.id)
+          .single();
 
-        if (shouldContinue) {
-          const u = existing[0];
-          const { data: stats } = await supabase
-            .from('user_stats')
-            .select('*')
-            .eq('user_id', u.id)
-            .single();
+        setUser({
+          userId: u.id,
+          accessCode: u.access_code,
+          name: u.name,
+          avatarType: u.avatar_type,
+          avatarName: u.avatar_name,
+          avatarEmoji: u.avatar_emoji,
+          chronotype: u.chronotype,
+          lifestyleLevel: u.lifestyle_level,
+          archetypeKey: u.archetype_key || null,
+          archetypeName: u.archetype_name || null,
+          archetypeIcon: u.archetype_icon || null,
+          health: stats?.health ?? 78,
+          coins: stats?.coins ?? 0,
+          greenEnergy: stats?.green_energy ?? 0,
+          level: stats?.level ?? 1,
+        });
 
-            setUser({
-              userId: user.id,
-              accessCode: user.access_code,
-              name: user.name,
-              avatarType: user.avatar_type,
-              avatarName: user.avatar_name,
-              avatarEmoji: user.avatar_emoji,
-              chronotype,
-              lifestyleLevel: s.level,
-              archetypeKey,
-              archetypeName: archetype.name,
-              archetypeIcon: archetype.icon,
-              health: stats?.health ?? 78,
-              coins: stats?.coins ?? 0,
-              greenEnergy: stats?.green_energy ?? 0,
-              level: stats?.level ?? 1,
-            });
+        const src = u.archetype_key || u.chronotype || 'steadybuilder';
+        setHabits(getHabitsForUser(src, u.current_week || 1));
+        onComplete();
+        return;
+      }
 
-          const habits = getHabitsForUser(archetypeKey, 1);
-          setHabits(habits);
-          onComplete();
-          return;
-        }
+      // ── Step 2: New user — validate code against access_codes table ──
+      const { data: validCode, error: codeErr } = await supabase
+        .from('access_codes')
+        .select('*')
+        .eq('code', code)
+        .eq('redeemed', false)
+        .single();
+
+      if (codeErr || !validCode) {
+        setError('Invalid or already used access code. Check your purchase confirmation email or contact support.');
+        setIsLoading(false);
+        return;
       }
 
       // Derive archetype from collected scores
@@ -365,6 +376,9 @@ export default function Onboarding({ onComplete }) {
           avatar_emoji: avatarEmojis[avatarType] || '🦔',
           chronotype,
           lifestyle_level: s.level,
+          archetype_key: archetypeKey,
+          archetype_name: archetype.name,
+          archetype_icon: archetype.icon,
           current_week: 1,
           program_start_date: new Date().toISOString(),
         })
@@ -373,8 +387,13 @@ export default function Onboarding({ onComplete }) {
 
       if (createErr) throw createErr;
 
-      // user_stats row is auto-created by DB trigger
-      // but fetch it to confirm
+      // Mark access code as redeemed
+      await supabase
+        .from('access_codes')
+        .update({ redeemed: true, redeemed_by: user.id })
+        .eq('code', code);
+
+      // user_stats row is auto-created by DB trigger — fetch to confirm
       const { data: stats } = await supabase
         .from('user_stats')
         .select('*')
@@ -390,6 +409,9 @@ export default function Onboarding({ onComplete }) {
         avatarEmoji: user.avatar_emoji,
         chronotype,
         lifestyleLevel: s.level,
+        archetypeKey,
+        archetypeName: archetype.name,
+        archetypeIcon: archetype.icon,
         health: stats?.health ?? 78,
         coins: stats?.coins ?? 0,
         greenEnergy: stats?.green_energy ?? 0,
@@ -401,7 +423,7 @@ export default function Onboarding({ onComplete }) {
         user_id: user.id,
         user_name: user.name,
         user_avatar_emoji: user.avatar_emoji,
-        content: `Just joined the Spring Reset as ${archetype.icon} ${archetype.name}! Let's bloom 🌱`,
+        content: `Just joined the Spring Wellness Program as ${archetype.icon} ${archetype.name}! Let's bloom 🌱`,
         post_type: 'milestone',
       });
 
@@ -425,7 +447,7 @@ export default function Onboarding({ onComplete }) {
         <div style={styles.container}>
           <div style={styles.logoBar}>
             <span style={styles.logo}>BLOOM</span>
-            <span style={styles.pill}>🌿 Spring Reset</span>
+            <span style={styles.pill}>🌿 Spring Wellness</span>
           </div>
 
           <div style={styles.introEyebrow}>Precision Wellness · Spring 2026</div>
@@ -437,7 +459,7 @@ export default function Onboarding({ onComplete }) {
           </h1>
           <p style={styles.introLead}>
             Most wellness programs give everyone the same plan. BLOOM does not.
-            Your 4-week Spring Reset is built from your actual biology, schedule,
+            Your Spring Wellness Program is built from your actual biology, schedule,
             stress patterns, and goals — not a generic template.
           </p>
 
@@ -486,7 +508,7 @@ export default function Onboarding({ onComplete }) {
         <div style={styles.container}>
           <div style={styles.logoBar}>
             <span style={styles.logo}>BLOOM</span>
-            <span style={styles.pill}>🌿 Spring Reset</span>
+            <span style={styles.pill}>🌿 Spring Wellness</span>
           </div>
 
           {/* Progress */}

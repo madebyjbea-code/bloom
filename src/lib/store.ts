@@ -10,6 +10,7 @@ export type Habit = {
   ge: number;
   time?: string;
   isQuit: boolean;
+  isCustom?: boolean; // user-created habits
 };
 
 type StoreState = {
@@ -23,16 +24,16 @@ type StoreState = {
   avatarName: string | null;
   avatarEmoji: string | null;
 
-  // Archetype (new)
+  // Archetype
   archetypeKey: string | null;
   archetypeName: string | null;
   archetypeIcon: string | null;
 
-  // Chronotype + level (still used for habit loading)
+  // Chronotype + level
   chronotype: 'lion' | 'bear' | 'wolf' | 'dolphin' | null;
   lifestyleLevel: 'foundation' | 'building' | 'optimization' | 'advanced' | null;
 
-  // Quiz answers (stored for profile display)
+  // Quiz answers
   nutBarrier: string | null;
   movTime: string | null;
   activity: string | null;
@@ -48,16 +49,24 @@ type StoreState = {
   greenEnergy: number;
   level: number;
 
-  // Habits
+  // Habits — program habits loaded from springProgram
   habits: Habit[];
+
+  // Custom habits — user-created, persisted locally
+  customHabits: Habit[];
+
+  // Completions — reset daily
   completedToday: string[];
+  lastCompletionDate: string | null; // YYYY-MM-DD — for daily reset
 
   // Actions
   setUser: (userData: Partial<StoreState>) => void;
   setStats: (stats: Partial<Pick<StoreState, 'health' | 'coins' | 'greenEnergy' | 'level'>>) => void;
   setHabits: (habits: Habit[]) => void;
+  addCustomHabit: (habit: Habit) => void;
+  removeCustomHabit: (key: string) => void;
   toggleHabit: (habitKey: string) => void;
-  clearCompletedToday: () => void;
+  checkDailyReset: () => void;
   reset: () => void;
 };
 
@@ -86,7 +95,9 @@ const defaults: Partial<StoreState> = {
   greenEnergy: 0,
   level: 1,
   habits: [],
+  customHabits: [],
   completedToday: [],
+  lastCompletionDate: null,
 };
 
 export const useStore = create<StoreState>()(
@@ -100,6 +111,21 @@ export const useStore = create<StoreState>()(
 
       setHabits: (habits) => set({ habits }),
 
+      addCustomHabit: (habit) => {
+        const { customHabits } = get();
+        // Prevent duplicates
+        if (customHabits.some(h => h.key === habit.key)) return;
+        set({ customHabits: [...customHabits, habit] });
+      },
+
+      removeCustomHabit: (key) => {
+        const { customHabits, completedToday } = get();
+        set({
+          customHabits: customHabits.filter(h => h.key !== key),
+          completedToday: completedToday.filter(k => k !== key),
+        });
+      },
+
       toggleHabit: (habitKey) => {
         const { completedToday } = get();
         const isCompleted = completedToday.includes(habitKey);
@@ -110,31 +136,51 @@ export const useStore = create<StoreState>()(
         });
       },
 
-      clearCompletedToday: () => set({ completedToday: [] }),
+      // Call this on app load — resets completedToday if it's a new day
+      checkDailyReset: () => {
+        const { lastCompletionDate } = get();
+        const today = new Date().toISOString().split('T')[0];
+        if (lastCompletionDate !== today) {
+          set({
+            completedToday: [],
+            lastCompletionDate: today,
+          });
+        }
+      },
 
       reset: () => set(defaults as StoreState),
     }),
     {
       name: 'bloom-storage',
-      // Only persist essential fields — don't persist habits array
-      // (loaded fresh from DB each session)
+      // Persist everything needed for a seamless return visit
       partialize: (state) => ({
+        // Auth
         userId: state.userId,
         accessCode: state.accessCode,
+        // Profile
         name: state.name,
         avatarType: state.avatarType,
         avatarName: state.avatarName,
         avatarEmoji: state.avatarEmoji,
+        // Archetype
         archetypeKey: state.archetypeKey,
         archetypeName: state.archetypeName,
         archetypeIcon: state.archetypeIcon,
+        // Program
         chronotype: state.chronotype,
         lifestyleLevel: state.lifestyleLevel,
+        // Stats — persisted locally so they feel instant on load
         health: state.health,
         coins: state.coins,
         greenEnergy: state.greenEnergy,
         level: state.level,
+        // Habits — persist so they load instantly before DB fetch
+        habits: state.habits,
+        // Custom habits — fully local, no DB needed
+        customHabits: state.customHabits,
+        // Daily completions
         completedToday: state.completedToday,
+        lastCompletionDate: state.lastCompletionDate,
       }),
     }
   )
