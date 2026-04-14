@@ -73,6 +73,10 @@ const NAV = [
   { key: 'community', icon: '👥', label: 'Community' },
 ];
 
+// ── Your admin user ID — paste from Supabase users table ──
+// Same value as in CommunityFeed.jsx
+const ADMIN_USER_ID = 'YOUR_USER_ID_HERE';
+
 function fmt(secs) {
   return `${String(Math.floor(secs/60)).padStart(2,'0')}:${String(secs%60).padStart(2,'0')}`;
 }
@@ -100,6 +104,16 @@ export default function Dashboard() {
   const [avMode, setAvMode]         = useState('pet');
   const [notifs, setNotifs]         = useState({ habits:true, community:true, streaks:true, reflection:false });
   const [customHabitOpen, setCustomHabitOpen] = useState(false);
+  const [statsLogOpen, setStatsLogOpen] = useState(false);
+  const [manualStats, setManualStats] = useState(() => {
+    try {
+      const stored = localStorage.getItem('bloom-daily-stats');
+      const parsed = stored ? JSON.parse(stored) : {};
+      const today = new Date().toISOString().split('T')[0];
+      return parsed.date === today ? parsed : { date: today };
+    } catch { return { date: new Date().toISOString().split('T')[0] }; }
+  });
+  const [statsForm, setStatsForm] = useState({ sleep:'', mindfulness:'', steps:'', water:'' });
 
   // Routine tracking
   const [routineFreqs, setRoutineFreqs] = useState(() => {
@@ -371,24 +385,79 @@ export default function Dashboard() {
 
   // ── Shared sub-components ──────────────────────────────────────────────────
 
+  // ── Dashboard quick post (admin only) ─────────────────────
+  const DashboardPostCard=()=>{
+    const [text, setText] = useState('');
+    const [posting, setPosting] = useState(false);
+
+    async function submit() {
+      if (!text.trim() || !userId) return;
+      setPosting(true);
+      const { data, error } = await supabase
+        .from('community_posts')
+        .insert({
+          user_id: userId,
+          user_name: name || 'J Bea',
+          user_avatar_emoji: avEmoji || '🌿',
+          content: text.trim(),
+          post_type: 'check_in',
+          parent_id: null,
+        })
+        .select()
+        .single();
+      if (data && !error) {
+        setText('');
+        toast('✅ Posted to community!');
+      }
+      setPosting(false);
+    }
+
+    return (
+      <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20}}>
+        <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>
+          Post to Community
+        </div>
+        <div style={{display:'flex',gap:10,alignItems:'flex-start'}}>
+          <div style={{width:34,height:34,borderRadius:'50%',background:'#f3f8f3',border:'2px solid #8aad8a',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>
+            {avEmoji||'🌿'}
+          </div>
+          <div style={{flex:1}}>
+            <textarea
+              value={text}
+              onChange={e=>setText(e.target.value)}
+              placeholder="Share a tip, recipe, science insight, or encouragement with your cohort..."
+              rows={2}
+              style={{width:'100%',padding:'10px 13px',border:'1.5px solid #e8e4de',borderRadius:12,fontSize:13,fontFamily:'DM Sans,sans-serif',outline:'none',color:'#2a2a2a',background:'#f7f3ed',resize:'vertical',transition:'border-color 0.2s',lineHeight:1.5}}
+              onFocus={e=>e.target.style.borderColor='#8aad8a'}
+              onBlur={e=>e.target.style.borderColor='#e8e4de'}
+            />
+            <div style={{display:'flex',justifyContent:'flex-end',marginTop:8}}>
+              <button
+                onClick={submit}
+                disabled={posting||!text.trim()}
+                style={{padding:'8px 18px',background:text.trim()?'#8aad8a':'#e8e4de',color:text.trim()?'white':'#aaa',border:'none',borderRadius:10,fontSize:13,fontWeight:600,cursor:text.trim()?'pointer':'not-allowed',fontFamily:'DM Sans,sans-serif',transition:'all 0.2s'}}
+              >
+                {posting?'Posting...':'Post →'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const AvatarCard=()=>{
-    const avShow = avMode==='pet'?(avEmoji||'🦔'):avMode==='mini'?'🧑‍🌿':'📊';
     return(
       <div style={{background:'linear-gradient(160deg,#e8f0e8,#f0ede8)',border:'1.5px solid #b5ceb5',borderRadius:20,padding:22,textAlign:'center'}}>
-        <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:12}}>Your Companion</div>
-        <div style={{display:'flex',background:'white',border:'1.5px solid #e8e4de',borderRadius:10,padding:3,marginBottom:14,width:'fit-content',margin:'0 auto 14px'}}>
-          {[['pet','🐾 Pet'],['mini','🪞 Mini'],['simple','📋']].map(([m,l])=>(
-            <button key={m} onClick={()=>setAvMode(m)} style={{padding:'5px 10px',borderRadius:7,border:'none',background:avMode===m?'#8aad8a':'transparent',color:avMode===m?'white':'#888',fontSize:11,fontWeight:500,cursor:'pointer',fontFamily:'DM Sans,sans-serif',transition:'all 0.2s'}}>{l}</button>
-          ))}
-        </div>
-        <div style={{position:'relative',width:130,height:130,margin:'0 auto 14px'}}>
+        <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:16}}>Your Companion</div>
+        <div style={{position:'relative',width:130,height:130,margin:'0 auto 16px'}}>
           <div style={{width:130,height:130,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:54,border:'3px solid rgba(255,255,255,0.7)',boxShadow:'0 8px 28px rgba(90,122,90,0.18)',animation:'breathe 4s ease-in-out infinite',cursor:'pointer',position:'relative'}}>
-            {avShow}
+            🧑‍🌿
             {equipped&&<div style={{position:'absolute',top:-6,right:-2,fontSize:18}}>{SHOP_ITEMS.find(i=>i.key===equipped.item_key)?.icon}</div>}
           </div>
           <div style={{position:'absolute',bottom:4,right:4,background:'#d4af6a',color:'white',fontSize:11,fontWeight:700,padding:'3px 8px',borderRadius:8}}>Lv.{level}</div>
         </div>
-        <div style={{fontFamily:'Instrument Serif,serif',fontSize:17,marginBottom:2}}>{avMode==='pet'?(avName||'Fern'):avMode==='mini'?`Mini ${name}`:'Stats'}</div>
+        <div style={{fontFamily:'Instrument Serif,serif',fontSize:17,marginBottom:2}}>{name}</div>
         <div style={{fontSize:11,color:'#5a7a5a',marginBottom:3}}>{arch.icon} {arch.name}</div>
         <div style={{fontSize:11,color:'#888',marginBottom:14}}>{mood}</div>
         {[{label:'❤️ Health',val:health,fill:'linear-gradient(90deg,#70c070,#4ea84e)'},{label:'📋 Today',val:pct,fill:'linear-gradient(90deg,#8aad8a,#5a7a5a)'}].map(b=>(
@@ -532,12 +601,19 @@ export default function Dashboard() {
           <div style={{display:'flex',flexDirection:'column',gap:16}}><AvatarCard/></div>
           <div style={{display:'flex',flexDirection:'column',gap:16}}>
             <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}} className="stats-row">
-              {[{icon:'😴',v:'7h 22m',l:'Sleep · synced',s:'↑ 18min vs avg'},{icon:'🧘',v:`${done.length*5}min`,l:'Mindfulness',s:'Goal: 20 min'},{icon:'🚶',v:'6,240',l:'Steps · synced',s:'Goal: 8,000'},{icon:'💧',v:'1.4 L',l:'Hydration',s:'Goal: 2.5 L'}].map(x=>(
-                <div key={x.l} style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:16,padding:16}}>
+              {[
+                {icon:'😴',v:manualStats.sleep||'—',l:'Sleep',s:'tap to log',key:'sleep'},
+                {icon:'🧘',v:manualStats.mindfulness?`${manualStats.mindfulness}min`:'—',l:'Mindfulness',s:'tap to log',key:'mindfulness'},
+                {icon:'🚶',v:manualStats.steps?manualStats.steps.toLocaleString():'—',l:'Steps',s:'tap to log',key:'steps'},
+                {icon:'💧',v:manualStats.water?`${manualStats.water}L`:'—',l:'Hydration',s:'tap to log',key:'water'},
+              ].map(x=>(
+                <div key={x.l} onClick={()=>setStatsLogOpen(true)} style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:16,padding:16,cursor:'pointer',transition:'all 0.2s'}}
+                  onMouseOver={e=>e.currentTarget.style.borderColor='#8aad8a'}
+                  onMouseOut={e=>e.currentTarget.style.borderColor='#e8e4de'}>
                   <div style={{fontSize:18,marginBottom:6}}>{x.icon}</div>
-                  <div style={{fontFamily:'Syne,sans-serif',fontSize:19,fontWeight:700,color:'#1a1a1a'}}>{x.v}</div>
+                  <div style={{fontFamily:'Syne,sans-serif',fontSize:19,fontWeight:700,color:x.v==='—'?'#ccc':'#1a1a1a'}}>{x.v}</div>
                   <div style={{fontSize:11,color:'#888',marginTop:1}}>{x.l}</div>
-                  <div style={{fontSize:11,color:'#5a7a5a',marginTop:3}}>{x.s}</div>
+                  <div style={{fontSize:10,color:'#aaa',marginTop:3}}>{x.v==='—'?'tap to log':x.s}</div>
                 </div>
               ))}
             </div>
@@ -585,6 +661,11 @@ export default function Dashboard() {
                 ))}
               </div>
             </div>
+
+            {/* Community quick post — admin only */}
+            {userId === ADMIN_USER_ID && (
+              <DashboardPostCard/>
+            )}
           </div>
         </div>
       </div>
@@ -929,11 +1010,11 @@ export default function Dashboard() {
         <CommunityFeed/>
         <div style={{display:'flex',flexDirection:'column',gap:14}}>
           <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:18}}>
-            <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>Avatar Compare</div>
-            {[{name:`${name} (you)`,av:avEmoji||'🦔',lv:level,c:coins,g:ge,me:true},{name:'Maya R.',av:'🦊',lv:12,c:5840,g:2340},{name:'Sam T.',av:'🐻',lv:5,c:1280,g:420}].map(u=>(
-              <div key={u.name} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:12,background:u.me?'#f3f8f3':'#f7f3ed',border:`1px solid ${u.me?'#b5ceb5':'#e8e4de'}`,marginBottom:8}}>
+            <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>Your Stats</div>
+            {[{name:`${name}`,av:avEmoji||'🦔',lv:level,c:coins,g:ge,me:true}].map(u=>(
+              <div key={u.name} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:12,background:'#f3f8f3',border:`1px solid #b5ceb5`,marginBottom:8}}>
                 <span style={{fontSize:20}}>{u.av}</span>
-                <div style={{flex:1}}><div style={{fontSize:12,fontWeight:600}}>{u.name}</div><div style={{fontSize:10,color:'#888'}}>Lv.{u.lv}</div></div>
+                <div style={{flex:1}}><div style={{fontSize:12,fontWeight:600}}>{u.name}</div><div style={{fontSize:10,color:'#888'}}>Lv.{u.lv} · {arch.icon} {arch.name}</div></div>
                 <div style={{display:'flex',gap:8}}>
                   <div style={{textAlign:'center'}}><div style={{fontFamily:'Syne,sans-serif',fontSize:12,fontWeight:700}}>{u.c.toLocaleString()}</div><div style={{fontSize:9,color:'#888'}}>🪙</div></div>
                   <div style={{textAlign:'center'}}><div style={{fontFamily:'Syne,sans-serif',fontSize:12,fontWeight:700}}>{u.g}</div><div style={{fontSize:9,color:'#888'}}>⚡</div></div>
@@ -942,15 +1023,12 @@ export default function Dashboard() {
             ))}
           </div>
           <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:18}}>
-            <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>This Week · GE</div>
-            {[{r:1,av:'🦊',n:'Maya R.',g:2340},{r:2,av:'🌺',n:'Aisha M.',g:1820},{r:3,av:avEmoji||'🦔',n:'You',g:ge,me:true},{r:4,av:'🦋',n:'Priya K.',g:680},{r:5,av:'🐻',n:'Sam T.',g:420}].map(x=>(
-              <div key={x.r} style={{display:'flex',alignItems:'center',gap:10,padding:'7px 0',borderBottom:'1px solid #f0ece6'}}>
-                <div style={{fontFamily:'Syne,sans-serif',fontSize:12,fontWeight:700,color:x.r<=2?'#d4af6a':'#888',width:20}}>{x.r}</div>
-                <span style={{fontSize:17}}>{x.av}</span>
-                <div style={{flex:1,fontSize:13,fontWeight:x.me?600:400}}>{x.n}</div>
-                <div style={{fontSize:12,fontWeight:600,color:'#5a7a5a'}}>{x.g} GE</div>
-              </div>
-            ))}
+            <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>Community Leaderboard</div>
+            <div style={{textAlign:'center',padding:'20px 0'}}>
+              <div style={{fontSize:28,marginBottom:10}}>🌱</div>
+              <div style={{fontSize:13,fontWeight:500,color:'#2a2a2a',marginBottom:6}}>Leaderboard unlocks with members</div>
+              <div style={{fontSize:12,color:'#aaa',lineHeight:1.5}}>As the cohort grows, GE rankings will appear here. Be the first to set the bar.</div>
+            </div>
           </div>
         </div>
       </div>
@@ -1124,7 +1202,71 @@ export default function Dashboard() {
     </div>
   );
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Stats Log Modal ────────────────────────────────────────
+  const StatsLogModal=()=>{
+    const fields=[
+      {key:'sleep',icon:'😴',label:'Sleep',placeholder:'e.g. 7.5',unit:'hrs',type:'number',step:'0.5'},
+      {key:'mindfulness',icon:'🧘',label:'Mindfulness',placeholder:'e.g. 20',unit:'min',type:'number',step:'1'},
+      {key:'steps',icon:'🚶',label:'Steps',placeholder:'e.g. 8000',unit:'steps',type:'number',step:'100'},
+      {key:'water',icon:'💧',label:'Water',placeholder:'e.g. 2.0',unit:'litres',type:'number',step:'0.1'},
+    ];
+
+    function saveStats(){
+      const today=new Date().toISOString().split('T')[0];
+      const updated={
+        date:today,
+        sleep:statsForm.sleep?parseFloat(statsForm.sleep):manualStats.sleep,
+        mindfulness:statsForm.mindfulness?parseInt(statsForm.mindfulness):manualStats.mindfulness,
+        steps:statsForm.steps?parseInt(statsForm.steps):manualStats.steps,
+        water:statsForm.water?parseFloat(statsForm.water):manualStats.water,
+      };
+      setManualStats(updated);
+      localStorage.setItem('bloom-daily-stats',JSON.stringify(updated));
+      setStatsForm({sleep:'',mindfulness:'',steps:'',water:''});
+      setStatsLogOpen(false);
+      toast('✅ Stats saved for today');
+    }
+
+    return(
+      <div onClick={()=>setStatsLogOpen(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:24,padding:28,width:420,maxWidth:'95vw'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+            <h2 style={{fontFamily:'Instrument Serif,serif',fontSize:22}}>Log today&apos;s stats</h2>
+            <button onClick={()=>setStatsLogOpen(false)} style={{width:30,height:30,borderRadius:'50%',border:'1.5px solid #e8e4de',background:'transparent',cursor:'pointer',fontSize:15}}>✕</button>
+          </div>
+          <p style={{fontSize:13,color:'#888',marginBottom:20}}>Leave blank to keep today&apos;s existing value</p>
+          <div style={{display:'flex',flexDirection:'column',gap:14,marginBottom:20}}>
+            {fields.map(f=>(
+              <div key={f.key} style={{display:'flex',alignItems:'center',gap:12}}>
+                <div style={{width:36,height:36,borderRadius:10,background:'#f7f3ed',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>{f.icon}</div>
+                <div style={{flex:1}}>
+                  <label style={{display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:0.5,color:'#888',marginBottom:5}}>{f.label}</label>
+                  <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                    <input
+                      type={f.type}
+                      step={f.step}
+                      value={statsForm[f.key]}
+                      onChange={e=>setStatsForm(p=>({...p,[f.key]:e.target.value}))}
+                      placeholder={manualStats[f.key]?String(manualStats[f.key]):f.placeholder}
+                      style={{flex:1,padding:'9px 12px',border:'1.5px solid #e8e4de',borderRadius:10,fontSize:14,fontFamily:'DM Sans,sans-serif',outline:'none',color:'#2a2a2a'}}
+                      onFocus={e=>e.target.style.borderColor='#8aad8a'}
+                      onBlur={e=>e.target.style.borderColor='#e8e4de'}
+                    />
+                    <span style={{fontSize:12,color:'#aaa',flexShrink:0}}>{f.unit}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <button onClick={saveStats} style={{width:'100%',padding:13,background:'#8aad8a',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
+            Save stats →
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Render titles ──────────────────────────────────────────
   const titles={
     dashboard:{t:`Good morning, ${name} ✨`,s:`Week ${week} · Day ${day} · ${arch.icon} ${arch.name}`},
     habits:{t:'Habits ✅',s:`${done.length}/${habits.length} complete today`},
@@ -1155,6 +1297,7 @@ export default function Dashboard() {
       {donateOpen  && <DonateModal/>}
       {reflOpen    && <ReflModal/>}
       {customHabitOpen && <CustomHabitModal onClose={()=>setCustomHabitOpen(false)}/>}
+      {statsLogOpen && <StatsLogModal/>}
       <div id="bloom-toast" className="toast" style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%) translateY(20px)',background:'#1a1a16',color:'white',padding:'12px 20px',borderRadius:99,fontSize:13,fontWeight:500,opacity:0,transition:'all 0.3s',zIndex:300,whiteSpace:'nowrap',pointerEvents:'none'}}/>
       <style>{`
         @keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}

@@ -4,21 +4,36 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useStore } from '../lib/store';
 
-// ─── Your admin user ID ───────────────────────────────────────────────────────
-// After running the quiz once, go to Supabase → Table Editor → users
-// Copy your UUID from the id column and paste it here.
-// This restricts top-level posting to your account only.
 const ADMIN_USER_ID = 'YOUR_USER_ID_HERE';
 
+const POST_CATEGORIES = [
+  { key: 'check_in',    label: '🌿 Wellness',    color: '#5a7a5a' },
+  { key: 'recipe',      label: '🥗 Recipe',       color: '#7a9e5a' },
+  { key: 'beauty',      label: '✨ Beauty & Care', color: '#9e7a8a' },
+  { key: 'milestone',   label: '🏆 Member Win',   color: '#8a7a5a' },
+  { key: 'science',     label: '🔬 Science',       color: '#5a7a9e' },
+];
+
+const FILTER_TABS = [
+  { key: 'all',       label: 'All' },
+  { key: 'check_in',  label: '🌿 Wellness' },
+  { key: 'recipe',    label: '🥗 Recipes' },
+  { key: 'beauty',    label: '✨ Beauty' },
+  { key: 'milestone', label: '🏆 Member Wins' },
+  { key: 'science',   label: '🔬 Science' },
+  { key: 'donation',  label: '🌍 Planet' },
+];
+
 export default function CommunityFeed() {
-  const [posts, setPosts]           = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [postText, setPostText]     = useState('');
-  const [posting, setPosting]       = useState(false);
-  const [filter, setFilter]         = useState('all');
-  const [expandedPost, setExpanded] = useState(null);
-  const [comments, setComments]     = useState({});  // postId → array
-  const [commentText, setCommentText] = useState({}); // postId → string
+  const [posts, setPosts]             = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [postText, setPostText]       = useState('');
+  const [postCategory, setPostCategory] = useState('check_in');
+  const [posting, setPosting]         = useState(false);
+  const [filter, setFilter]           = useState('all');
+  const [expandedPost, setExpanded]   = useState(null);
+  const [comments, setComments]       = useState({});
+  const [commentText, setCommentText] = useState({});
   const [submittingComment, setSubmittingComment] = useState(null);
 
   const userId  = useStore(s => s.userId);
@@ -29,27 +44,23 @@ export default function CommunityFeed() {
 
   useEffect(() => {
     loadPosts();
-
     const channel = supabase
       .channel('community_posts')
       .on('postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'community_posts' },
         payload => {
-          // Only show top-level posts in main feed (no parent_id)
           if (!payload.new.parent_id) {
             setPosts(prev => [payload.new, ...prev]);
           } else {
-            // It's a comment — update the comment count + comments if expanded
             setComments(prev => {
               const pid = payload.new.parent_id;
               if (!prev[pid]) return prev;
-              return { ...prev, [pid]: [payload.new, ...prev[pid]] };
+              return { ...prev, [pid]: [...prev[pid], payload.new] };
             });
           }
         }
       )
       .subscribe();
-
     return () => { supabase.removeChannel(channel); };
   }, []);
 
@@ -59,13 +70,13 @@ export default function CommunityFeed() {
       .select('*')
       .is('parent_id', null)
       .order('created_at', { ascending: false })
-      .limit(30);
+      .limit(40);
     if (data) setPosts(data);
     setLoading(false);
   }
 
   async function loadComments(postId) {
-    if (comments[postId]) return; // already loaded
+    if (comments[postId]) return;
     const { data } = await supabase
       .from('community_posts')
       .select('*')
@@ -75,15 +86,10 @@ export default function CommunityFeed() {
   }
 
   function toggleExpand(postId) {
-    if (expandedPost === postId) {
-      setExpanded(null);
-    } else {
-      setExpanded(postId);
-      loadComments(postId);
-    }
+    if (expandedPost === postId) { setExpanded(null); }
+    else { setExpanded(postId); loadComments(postId); }
   }
 
-  // Admin: submit top-level post
   async function submitPost() {
     if (!postText.trim() || !userId || !isAdmin) return;
     setPosting(true);
@@ -94,12 +100,11 @@ export default function CommunityFeed() {
         user_name: name || 'J Bea',
         user_avatar_emoji: avEmoji || '🌿',
         content: postText.trim(),
-        post_type: 'check_in',
+        post_type: postCategory,
         parent_id: null,
       })
       .select()
       .single();
-
     if (data && !error) {
       setPosts(prev => [data, ...prev]);
       setPostText('');
@@ -107,12 +112,10 @@ export default function CommunityFeed() {
     setPosting(false);
   }
 
-  // Any user: submit comment on a post
   async function submitComment(postId) {
     const text = (commentText[postId] || '').trim();
     if (!text || !userId) return;
     setSubmittingComment(postId);
-
     const { data, error } = await supabase
       .from('community_posts')
       .insert({
@@ -125,35 +128,20 @@ export default function CommunityFeed() {
       })
       .select()
       .single();
-
     if (data && !error) {
-      setComments(prev => ({
-        ...prev,
-        [postId]: [...(prev[postId] || []), data],
-      }));
+      setComments(prev => ({ ...prev, [postId]: [...(prev[postId] || []), data] }));
       setCommentText(prev => ({ ...prev, [postId]: '' }));
     }
     setSubmittingComment(null);
   }
 
-  function typeIcon(t) {
-    const m = { streak:'🔥', milestone:'🎯', donation:'🌍', level_up:'⭐', week_complete:'✨', check_in:'🌿', comment:'💬' };
-    return m[t] || '🌱';
+  function getCat(key) {
+    return POST_CATEGORIES.find(c => c.key === key) || { label: '🌿 Post', color: '#5a7a5a' };
   }
 
   function typeBg(t) {
-    const m = { streak:'#fff8f0', milestone:'#f3f8f3', donation:'#f0fdf4', level_up:'#fdf8ed', week_complete:'#f3f8f3', check_in:'#f7f3ed', comment:'#f7f3ed' };
+    const m = { recipe:'#f3f8f0', beauty:'#fdf5f8', milestone:'#fdf8ed', science:'#f0f4fa', donation:'#f0fdf4', check_in:'#f7f3ed', comment:'#f7f3ed' };
     return m[t] || '#f7f3ed';
-  }
-
-  function typeLabel(t) {
-    const m = { streak:'Streak', milestone:'Milestone', donation:'Planet', level_up:'Level Up', week_complete:'Week Complete', check_in:'Post', comment:'Comment' };
-    return m[t] || 'Post';
-  }
-
-  function typeColor(t) {
-    const m = { streak:'#b06020', milestone:'#5a7a5a', donation:'#276a3a', level_up:'#a06020', week_complete:'#5a7a5a', check_in:'#5a7a5a', comment:'#888' };
-    return m[t] || '#888';
   }
 
   function timeAgo(ts) {
@@ -165,29 +153,17 @@ export default function CommunityFeed() {
     return `${d}d ago`;
   }
 
-  const FILTERS = [
-    { key: 'all',          label: 'All' },
-    { key: 'milestone',    label: '🏆 Milestones' },
-    { key: 'check_in',     label: '🌿 Posts' },
-    { key: 'donation',     label: '🌍 Planet' },
-    { key: 'streak',       label: '🔥 Streaks' },
-    { key: 'week_complete',label: '✨ Weeks' },
-  ];
+  const filtered = filter === 'all' ? posts : posts.filter(p => p.post_type === filter);
 
-  const filtered = filter === 'all'
-    ? posts
-    : posts.filter(p => p.post_type === filter);
-
-  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div style={{ background: 'white', border: '1.5px solid #e8e4de', borderRadius: 20, padding: 22 }}>
       <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1.2px', color: '#888', marginBottom: 16 }}>
         Community · Spring Wellness Program
       </div>
 
-      {/* Admin post input — only visible to you */}
+      {/* Admin post input */}
       {isAdmin && (
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 18 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
             <div style={{ width: 34, height: 34, borderRadius: '50%', background: '#f3f8f3', border: '2px solid #8aad8a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
               {avEmoji || '🌿'}
@@ -196,19 +172,27 @@ export default function CommunityFeed() {
               <textarea
                 value={postText}
                 onChange={e => setPostText(e.target.value)}
-                placeholder="Share something with your community — a recipe, tip, science insight, or encouragement..."
+                placeholder="Share something with your community..."
                 rows={3}
                 style={{ width: '100%', padding: '10px 14px', border: '1.5px solid #e8e4de', borderRadius: 12, fontSize: 13, fontFamily: 'DM Sans, sans-serif', outline: 'none', color: '#2a2a2a', background: '#f7f3ed', resize: 'vertical', transition: 'border-color 0.2s' }}
                 onFocus={e => e.target.style.borderColor = '#8aad8a'}
                 onBlur={e => e.target.style.borderColor = '#e8e4de'}
               />
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                <span style={{ fontSize: 11, color: '#bbb' }}>Only you can post here · members can comment</span>
-                <button
-                  onClick={submitPost}
-                  disabled={posting || !postText.trim()}
-                  style={{ padding: '8px 18px', background: postText.trim() ? '#8aad8a' : '#e8e4de', color: postText.trim() ? 'white' : '#aaa', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: postText.trim() ? 'pointer' : 'not-allowed', fontFamily: 'DM Sans, sans-serif', transition: 'all 0.2s' }}
-                >
+
+              {/* Category selector */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8, marginBottom: 8 }}>
+                {POST_CATEGORIES.map(c => (
+                  <button key={c.key} onClick={() => setPostCategory(c.key)}
+                    style={{ padding: '4px 12px', borderRadius: 99, border: `1.5px solid ${postCategory === c.key ? c.color : '#e8e4de'}`, background: postCategory === c.key ? c.color + '18' : 'white', color: postCategory === c.key ? c.color : '#888', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', transition: 'all 0.2s' }}>
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: '#bbb' }}>Only you can post · members can comment</span>
+                <button onClick={submitPost} disabled={posting || !postText.trim()}
+                  style={{ padding: '8px 18px', background: postText.trim() ? '#8aad8a' : '#e8e4de', color: postText.trim() ? 'white' : '#aaa', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: postText.trim() ? 'pointer' : 'not-allowed', fontFamily: 'DM Sans, sans-serif', transition: 'all 0.2s' }}>
                   {posting ? 'Posting...' : 'Post →'}
                 </button>
               </div>
@@ -219,7 +203,7 @@ export default function CommunityFeed() {
 
       {/* Filter tabs */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
-        {FILTERS.map(f => (
+        {FILTER_TABS.map(f => (
           <button key={f.key} onClick={() => setFilter(f.key)}
             style={{ padding: '5px 12px', borderRadius: 99, border: `1.5px solid ${filter === f.key ? '#8aad8a' : '#e8e4de'}`, background: filter === f.key ? '#f3f8f3' : 'white', color: filter === f.key ? '#5a7a5a' : '#888', fontSize: 11, fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', transition: 'all 0.2s' }}>
             {f.label}
@@ -234,13 +218,12 @@ export default function CommunityFeed() {
         ) : filtered.length === 0 ? (
           <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: 20 }}>Nothing here yet — check back soon 🌱</p>
         ) : filtered.map(post => {
+          const cat = getCat(post.post_type);
           const isExpanded = expandedPost === post.id;
           const postComments = comments[post.id] || [];
-          const commentCount = postComments.length;
 
           return (
             <div key={post.id} style={{ borderRadius: 14, border: '1px solid #e8e4de', overflow: 'hidden' }}>
-              {/* Post */}
               <div style={{ display: 'flex', gap: 10, padding: 14, background: typeBg(post.post_type) }}>
                 <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#e8d9c4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
                   {post.user_avatar_emoji || '🌱'}
@@ -249,28 +232,24 @@ export default function CommunityFeed() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: '#2a2a2a' }}>{post.user_name || 'Anonymous'}</span>
                     {post.post_type !== 'check_in' && (
-                      <span style={{ fontSize: 10, color: typeColor(post.post_type), background: 'white', border: `1px solid ${typeColor(post.post_type)}33`, borderRadius: 99, padding: '2px 8px', fontWeight: 600 }}>
-                        {typeIcon(post.post_type)} {typeLabel(post.post_type)}
+                      <span style={{ fontSize: 10, color: cat.color, background: 'white', border: `1px solid ${cat.color}33`, borderRadius: 99, padding: '2px 8px', fontWeight: 600 }}>
+                        {cat.label}
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: 13, color: '#444', lineHeight: 1.55, marginBottom: 8, wordBreak: 'break-word' }}>{post.content}</div>
+                  <div style={{ fontSize: 13, color: '#444', lineHeight: 1.6, marginBottom: 8, wordBreak: 'break-word' }}>{post.content}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <span style={{ fontSize: 11, color: '#bbb' }}>{timeAgo(post.created_at)}</span>
-                    <button
-                      onClick={() => toggleExpand(post.id)}
-                      style={{ fontSize: 11, color: '#8aad8a', fontWeight: 600, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', padding: 0 }}
-                    >
-                      💬 {isExpanded ? 'Hide' : `Reply${commentCount > 0 ? ` (${commentCount})` : ''}`}
+                    <button onClick={() => toggleExpand(post.id)}
+                      style={{ fontSize: 11, color: '#8aad8a', fontWeight: 600, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', padding: 0 }}>
+                      💬 {isExpanded ? 'Hide' : `Reply${postComments.length > 0 ? ` (${postComments.length})` : ''}`}
                     </button>
                   </div>
                 </div>
               </div>
 
-              {/* Comments section */}
               {isExpanded && (
                 <div style={{ background: 'white', borderTop: '1px solid #f0ece6' }}>
-                  {/* Existing comments */}
                   {postComments.length > 0 && (
                     <div style={{ padding: '10px 14px 6px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {postComments.map(c => (
@@ -287,8 +266,6 @@ export default function CommunityFeed() {
                       ))}
                     </div>
                   )}
-
-                  {/* Comment input — available to all users */}
                   <div style={{ padding: '10px 14px 12px', display: 'flex', gap: 8, alignItems: 'center' }}>
                     <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#f0ece6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>
                       {avEmoji || '🌱'}
@@ -302,8 +279,7 @@ export default function CommunityFeed() {
                       onFocus={e => e.target.style.borderColor = '#8aad8a'}
                       onBlur={e => e.target.style.borderColor = '#e8e4de'}
                     />
-                    <button
-                      onClick={() => submitComment(post.id)}
+                    <button onClick={() => submitComment(post.id)}
                       disabled={submittingComment === post.id || !(commentText[post.id] || '').trim()}
                       style={{ padding: '8px 14px', background: (commentText[post.id] || '').trim() ? '#8aad8a' : '#e8e4de', color: (commentText[post.id] || '').trim() ? 'white' : '#aaa', border: 'none', borderRadius: 10, fontSize: 12, fontWeight: 600, cursor: (commentText[post.id] || '').trim() ? 'pointer' : 'not-allowed', fontFamily: 'DM Sans, sans-serif', transition: 'all 0.2s' }}>
                       {submittingComment === post.id ? '...' : '→'}
