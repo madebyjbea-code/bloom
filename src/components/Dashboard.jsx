@@ -88,6 +88,7 @@ function toast(msg) {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [tab, setTab]               = useState('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [shopOpen, setShopOpen]     = useState(false);
   const [donateOpen, setDonateOpen] = useState(false);
   const [reflOpen, setReflOpen]     = useState(false);
@@ -99,6 +100,19 @@ export default function Dashboard() {
   const [avMode, setAvMode]         = useState('pet');
   const [notifs, setNotifs]         = useState({ habits:true, community:true, streaks:true, reflection:false });
   const [customHabitOpen, setCustomHabitOpen] = useState(false);
+
+  // Routine tracking
+  const [routineFreqs, setRoutineFreqs] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('bloom-routine-freqs') || '{}'); } catch { return {}; }
+  });
+  const [routineLog, setRoutineLog] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('bloom-routine-log') || '{}'); } catch { return {}; }
+  });
+
+  // Planner selected day
+  const [selectedDay, setSelectedDay] = useState(null); // YYYY-MM-DD
+  const [dayStats, setDayStats]       = useState(null);
+  const [dayStatsLoading, setDayStatsLoading] = useState(false);
 
   // Routine timer
   const [routine, setRoutine]       = useState(null);
@@ -168,6 +182,64 @@ export default function Dashboard() {
       if(c) c.forEach(x=>{ if(!done.includes(x.habit_key)) toggleH(x.habit_key); });
       setLoading(false);
     } catch(e){ console.error(e); setLoading(false); }
+  }
+
+  function recordRoutineCompletion(key) {
+    const today = new Date().toISOString().split('T')[0];
+    const logKey = `${key}_${today}`;
+    const current = routineLog[logKey] || 0;
+    const updated = { ...routineLog, [logKey]: current + 1 };
+    setRoutineLog(updated);
+    localStorage.setItem('bloom-routine-log', JSON.stringify(updated));
+  }
+
+  function setRoutineFreq(key, freq) {
+    const updated = { ...routineFreqs, [key]: freq };
+    setRoutineFreqs(updated);
+    localStorage.setItem('bloom-routine-freqs', JSON.stringify(updated));
+  }
+
+  function getTodayRoutineCount(key) {
+    const today = new Date().toISOString().split('T')[0];
+    return routineLog[`${key}_${today}`] || 0;
+  }
+
+  function getRoutineFreq(key) {
+    return routineFreqs[key] || 1;
+  }
+
+  async function loadDayStats(dateStr) {
+    setSelectedDay(dateStr);
+    setDayStatsLoading(true);
+    setDayStats(null);
+    try {
+      if (userId) {
+        const { data: completions } = await supabase
+          .from('habit_completions')
+          .select('habit_key')
+          .eq('user_id', userId)
+          .eq('date', dateStr);
+        const keys = completions?.map(c => c.habit_key) || [];
+        const completed = allHabits.filter(h => keys.includes(h.key));
+        const totalCoins = completed.reduce((a, h) => a + h.coins, 0);
+        const totalGE = completed.reduce((a, h) => a + h.ge, 0);
+        // Routine completions from localStorage
+        const routineDone = Object.entries(routineLog)
+          .filter(([k]) => k.endsWith(`_${dateStr}`))
+          .map(([k, v]) => ({ key: k.replace(`_${dateStr}`, ''), count: v }));
+        setDayStats({ date: dateStr, completed, totalCoins, totalGE, routineDone });
+      } else {
+        // localStorage only — check completedToday for today, empty for past
+        const today = new Date().toISOString().split('T')[0];
+        if (dateStr === today) {
+          const completed = allHabits.filter(h => done.includes(h.key));
+          setDayStats({ date: dateStr, completed, totalCoins: completed.reduce((a,h)=>a+h.coins,0), totalGE: completed.reduce((a,h)=>a+h.ge,0), routineDone: [] });
+        } else {
+          setDayStats({ date: dateStr, completed: [], totalCoins: 0, totalGE: 0, routineDone: [] });
+        }
+      }
+    } catch(e) { console.error(e); }
+    setDayStatsLoading(false);
   }
 
   async function loadInv(){
@@ -270,6 +342,7 @@ export default function Dashboard() {
                 return s+1;
               } else {
                 toast('🎉 Routine complete! +20 🪙');
+                recordRoutineCompletion(routine);
                 const nc=coins+20;
                 supabase.from('user_stats').update({coins:nc}).eq('user_id',userId);
                 setStats({coins:nc}); setRoutine(null); return s;
@@ -380,19 +453,48 @@ export default function Dashboard() {
   );
 
   const Sidebar=()=>(
-    <nav style={{position:'fixed',left:0,top:0,bottom:0,width:72,background:'#1a2e1a',display:'flex',flexDirection:'column',alignItems:'center',padding:'20px 0 24px',gap:6,zIndex:100}}>
-      <div style={{fontFamily:'Syne,sans-serif',fontWeight:800,fontSize:17,color:'#7ac47a',marginBottom:18}}>B</div>
-      {NAV.map(n=>(
-        <button key={n.key} onClick={()=>setTab(n.key)} title={n.label}
-          style={{width:46,height:46,borderRadius:13,background:tab===n.key?'#2d5a2d':'transparent',border:'none',cursor:'pointer',fontSize:20,display:'flex',alignItems:'center',justifyContent:'center',color:tab===n.key?'white':'#4a6a4a',transition:'all 0.2s',position:'relative'}}>
-          {n.icon}
-          {n.key==='community'&&<div style={{position:'absolute',top:6,right:6,width:7,height:7,background:'#e07070',borderRadius:'50%',border:'2px solid #1a2e1a'}}/>}
-        </button>
-      ))}
-      <div style={{flex:1}}/>
-      <button onClick={()=>setShopOpen(true)} title="Shop" style={{width:46,height:46,borderRadius:13,background:'transparent',border:'none',cursor:'pointer',fontSize:20,display:'flex',alignItems:'center',justifyContent:'center',color:'#4a6a4a'}}>🛍</button>
-      <button onClick={()=>setTab('settings')} title="Settings" style={{width:46,height:46,borderRadius:13,background:tab==='settings'?'#2d5a2d':'transparent',border:'none',cursor:'pointer',fontSize:20,display:'flex',alignItems:'center',justifyContent:'center',color:tab==='settings'?'white':'#4a6a4a',transition:'all 0.2s'}}>⚙️</button>
-    </nav>
+    <>
+      {/* Collapsed toggle button — always visible */}
+      <button
+        onClick={()=>setSidebarOpen(o=>!o)}
+        title={sidebarOpen?'Collapse sidebar':'Expand sidebar'}
+        style={{position:'fixed',top:16,left:sidebarOpen?186:16,width:32,height:32,borderRadius:99,background:'#1a2e1a',border:'2px solid #2d5a2d',cursor:'pointer',fontSize:13,color:'#7ac47a',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',transition:'left 0.25s ease',boxShadow:'0 2px 8px rgba(0,0,0,0.3)'}}
+      >
+        {sidebarOpen?'←':'→'}
+      </button>
+
+      {/* Sidebar panel */}
+      <nav style={{position:'fixed',left:0,top:0,bottom:0,width:sidebarOpen?220:0,background:'#1a2e1a',display:'flex',flexDirection:'column',padding:sidebarOpen?'20px 12px 24px':'0',gap:4,zIndex:100,overflow:'hidden',transition:'width 0.25s ease',boxShadow:sidebarOpen?'2px 0 16px rgba(0,0,0,0.15)':'none'}}>
+
+        {sidebarOpen && (
+          <>
+            {/* Spacer for toggle button */}
+            <div style={{height:44,marginBottom:8}}/>
+
+            {NAV.map(n=>(
+              <button key={n.key} onClick={()=>setTab(n.key)} title={n.label}
+                style={{width:'100%',height:44,borderRadius:12,background:tab===n.key?'#2d5a2d':'transparent',border:'none',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',gap:12,padding:'0 14px',color:tab===n.key?'white':'#6a9a6a',transition:'all 0.2s',position:'relative',fontFamily:'DM Sans,sans-serif',fontWeight:tab===n.key?600:400}}>
+                <span style={{fontSize:18,flexShrink:0}}>{n.icon}</span>
+                <span>{n.label}</span>
+                {n.key==='community'&&<div style={{position:'absolute',top:10,left:26,width:7,height:7,background:'#e07070',borderRadius:'50%',border:'2px solid #1a2e1a'}}/>}
+              </button>
+            ))}
+
+            <div style={{flex:1}}/>
+
+            <button onClick={()=>setShopOpen(true)}
+              style={{width:'100%',height:44,borderRadius:12,background:'transparent',border:'none',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',gap:12,padding:'0 14px',color:'#6a9a6a',fontFamily:'DM Sans,sans-serif'}}>
+              <span style={{fontSize:18}}>🛍</span><span>Shop</span>
+            </button>
+
+            <button onClick={()=>setTab('settings')}
+              style={{width:'100%',height:44,borderRadius:12,background:tab==='settings'?'#2d5a2d':'transparent',border:'none',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',gap:12,padding:'0 14px',color:tab==='settings'?'white':'#6a9a6a',fontFamily:'DM Sans,sans-serif',fontWeight:tab==='settings'?600:400}}>
+              <span style={{fontSize:18}}>⚙️</span><span>Settings</span>
+            </button>
+          </>
+        )}
+      </nav>
+    </>
   );
 
   const TopBar=({title,sub})=>(
@@ -502,33 +604,101 @@ export default function Dashboard() {
     const totalSecs=step?step.duration*60:0;
     const elapsed=totalSecs-rSecs;
     const prog=totalSecs>0?(elapsed/totalSecs)*100:0;
+
     return(
       <div style={{padding:'22px 26px',maxWidth:860}}>
         {!routine?(
           <>
             <div style={{fontFamily:'Instrument Serif,serif',fontSize:26,marginBottom:6,color:'#1a1a1a'}}>Your Routines</div>
-            <p style={{fontSize:14,color:'#888',marginBottom:22,lineHeight:1.6}}>Guided step-by-step sessions with a built-in timer. Each routine earns 🪙 coins.</p>
+            <p style={{fontSize:14,color:'#888',marginBottom:22,lineHeight:1.6}}>Guided step-by-step sessions with a built-in timer. Set your daily frequency target and track completions.</p>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',gap:16}}>
-              {Object.entries(ROUTINES).map(([k,r])=>(
-                <div key={k} style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:22,cursor:'pointer',transition:'all 0.2s',borderTop:`3px solid ${r.color}`}} onClick={()=>startRoutine(k)}>
-                  <div style={{fontSize:28,marginBottom:10}}>{r.icon}</div>
-                  <div style={{fontFamily:'Syne,sans-serif',fontSize:15,fontWeight:700,marginBottom:5}}>{r.label}</div>
-                  <div style={{fontSize:13,color:'#888',marginBottom:14}}>{r.steps.reduce((a,s)=>a+s.duration,0)} min · {r.steps.length} steps</div>
-                  <div style={{display:'flex',flexDirection:'column',gap:5,marginBottom:16}}>
-                    {r.steps.map((s,i)=>(
-                      <div key={i} style={{display:'flex',alignItems:'center',gap:8,fontSize:12,color:'#555'}}>
-                        <div style={{width:5,height:5,borderRadius:'50%',background:r.color,flexShrink:0}}/>{s.name} · {s.duration} min
+              {Object.entries(ROUTINES).map(([k,r])=>{
+                const todayCount = getTodayRoutineCount(k);
+                const freq = getRoutineFreq(k);
+                const pctDone = Math.min(100, Math.round((todayCount/freq)*100));
+                const allDone = todayCount >= freq;
+                return(
+                  <div key={k} style={{background:'white',border:`1.5px solid ${allDone?'#8aad8a':'#e8e4de'}`,borderRadius:20,padding:22,transition:'all 0.2s',borderTop:`3px solid ${r.color}`}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
+                      <div style={{fontSize:28}}>{r.icon}</div>
+                      {allDone && <div style={{fontSize:11,fontWeight:700,color:'#5a7a5a',background:'#f3f8f3',border:'1px solid #b5ceb5',borderRadius:99,padding:'3px 10px'}}>✓ Done today</div>}
+                    </div>
+                    <div style={{fontFamily:'Syne,sans-serif',fontSize:15,fontWeight:700,marginBottom:4}}>{r.label}</div>
+                    <div style={{fontSize:13,color:'#888',marginBottom:12}}>{r.steps.reduce((a,s)=>a+s.duration,0)} min · {r.steps.length} steps</div>
+
+                    {/* Daily frequency target */}
+                    <div style={{marginBottom:12}}>
+                      <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:0.5,color:'#888',marginBottom:6}}>Daily target</div>
+                      <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                        {[1,2,3].map(n=>(
+                          <button key={n} onClick={()=>setRoutineFreq(k,n)}
+                            style={{width:32,height:32,borderRadius:8,border:`1.5px solid ${freq===n?r.color:'#e8e4de'}`,background:freq===n?r.color+'22':'white',color:freq===n?r.color:'#888',fontSize:13,fontWeight:700,cursor:'pointer',transition:'all 0.2s'}}>
+                            {n}x
+                          </button>
+                        ))}
+                        <div style={{flex:1,marginLeft:4}}>
+                          <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'#888',marginBottom:3}}>
+                            <span>Today</span>
+                            <span style={{fontWeight:600,color:allDone?'#5a7a5a':'#888'}}>{todayCount}/{freq}</span>
+                          </div>
+                          <div style={{height:5,background:'#e8e4de',borderRadius:99,overflow:'hidden'}}>
+                            <div style={{height:'100%',width:`${pctDone}%`,background:allDone?'#8aad8a':r.color,borderRadius:99,transition:'width 0.4s'}}/>
+                          </div>
+                        </div>
                       </div>
-                    ))}
+                    </div>
+
+                    <div style={{display:'flex',flexDirection:'column',gap:4,marginBottom:14}}>
+                      {r.steps.map((s,i)=>(
+                        <div key={i} style={{display:'flex',alignItems:'center',gap:8,fontSize:12,color:'#555'}}>
+                          <div style={{width:5,height:5,borderRadius:'50%',background:r.color,flexShrink:0}}/>{s.name} · {s.duration} min
+                        </div>
+                      ))}
+                    </div>
+                    <button onClick={()=>startRoutine(k)}
+                      style={{width:'100%',padding:10,background:r.color,color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
+                      {todayCount>0?`Start again (${todayCount} done)`:`Start ${r.label} →`}
+                    </button>
                   </div>
-                  <button style={{width:'100%',padding:10,background:r.color,color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>Start {r.label} →</button>
-                </div>
-              ))}
+                );
+              })}
             </div>
+
+            {/* Completion history */}
+            {Object.keys(routineLog).length > 0 && (
+              <div style={{marginTop:24,background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20}}>
+                <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>Recent completions</div>
+                <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                  {Object.entries(routineLog)
+                    .sort((a,b)=>b[0].localeCompare(a[0]))
+                    .slice(0,10)
+                    .map(([k,v])=>{
+                      const parts = k.split('_');
+                      const dateStr = parts[parts.length-1];
+                      const routineKey = parts.slice(0,-1).join('_');
+                      const r = ROUTINES[routineKey];
+                      if(!r) return null;
+                      return(
+                        <div key={k} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',background:'#f7f3ed',borderRadius:12,border:'1px solid #e8e4de'}}>
+                          <span style={{fontSize:20}}>{r.icon}</span>
+                          <div style={{flex:1}}>
+                            <div style={{fontSize:13,fontWeight:500}}>{r.label}</div>
+                            <div style={{fontSize:11,color:'#888'}}>{dateStr}</div>
+                          </div>
+                          <div style={{fontFamily:'Syne,sans-serif',fontSize:13,fontWeight:700,color:'#5a7a5a'}}>{v}x</div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
           </>
         ):(
           <div>
-            <button onClick={()=>{setRoutine(null);clearInterval(rTimer.current);setRRunning(false);}} style={{background:'transparent',border:'none',cursor:'pointer',fontSize:13,color:'#888',marginBottom:20,display:'flex',alignItems:'center',gap:6,fontFamily:'DM Sans,sans-serif'}}>← Back to routines</button>
+            <button onClick={()=>{setRoutine(null);clearInterval(rTimer.current);setRRunning(false);}}
+              style={{background:'transparent',border:'none',cursor:'pointer',fontSize:13,color:'#888',marginBottom:20,display:'flex',alignItems:'center',gap:6,fontFamily:'DM Sans,sans-serif'}}>
+              ← Back to routines
+            </button>
             <div style={{display:'grid',gridTemplateColumns:'1fr 280px',gap:20,alignItems:'start'}} className="routine-grid">
               <div style={{background:'#1a1a16',borderRadius:24,padding:32,textAlign:'center',color:'white'}}>
                 <div style={{fontSize:11,color:'#444',textTransform:'uppercase',letterSpacing:'1.5px',marginBottom:6}}>{r.label}</div>
@@ -539,10 +709,18 @@ export default function Dashboard() {
                   <div style={{height:'100%',width:`${prog}%`,background:r.color,borderRadius:99,transition:'width 1s linear'}}/>
                 </div>
                 <div style={{display:'flex',gap:10,justifyContent:'center'}}>
-                  <button onClick={toggleTimer} style={{padding:'11px 26px',background:r.color,color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
+                  <button onClick={toggleTimer}
+                    style={{padding:'11px 26px',background:r.color,color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
                     {rRunning?'⏸ Pause':'▶ Start'}
                   </button>
-                  <button onClick={skipStep} style={{padding:'11px 18px',background:'rgba(255,255,255,0.06)',color:'#888',border:'1px solid rgba(255,255,255,0.1)',borderRadius:12,fontSize:13,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>Skip →</button>
+                  <button onClick={skipStep}
+                    style={{padding:'11px 18px',background:'rgba(255,255,255,0.06)',color:'#888',border:'1px solid rgba(255,255,255,0.1)',borderRadius:12,fontSize:13,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
+                    Skip →
+                  </button>
+                </div>
+                {/* Today's count for this routine */}
+                <div style={{marginTop:20,fontSize:12,color:'#444'}}>
+                  Completed today: <strong style={{color:'#7ac47a'}}>{getTodayRoutineCount(routine)}x</strong> / {getRoutineFreq(routine)}x target
                 </div>
               </div>
               <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20}}>
@@ -568,29 +746,143 @@ export default function Dashboard() {
 
   const TabPlanner=()=>{
     const today=new Date();
-    const allDays=Array.from({length:28},(_,i)=>{const d=new Date(today);d.setDate(today.getDate()-today.getDay()+i);return{n:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()],num:d.getDate(),mo:d.toLocaleDateString('en-US',{month:'short'}),today:d.toDateString()===today.toDateString()};});
+    const todayStr=today.toISOString().split('T')[0];
+    // Build 5 weeks of days starting from Sunday of 2 weeks ago
+    const startDate=new Date(today);
+    startDate.setDate(today.getDate()-today.getDay()-14);
+    const allDays=Array.from({length:35},(_,i)=>{
+      const d=new Date(startDate);
+      d.setDate(startDate.getDate()+i);
+      const ds=d.toISOString().split('T')[0];
+      return{
+        n:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()],
+        num:d.getDate(),
+        mo:d.toLocaleDateString('en-US',{month:'short'}),
+        dateStr:ds,
+        isToday:ds===todayStr,
+        isFuture:d>today,
+        isSelected:ds===selectedDay,
+      };
+    });
+
     return(
-      <div style={{padding:'22px 26px',maxWidth:900}}>
+      <div style={{padding:'22px 26px',maxWidth:960}}>
         <div style={{fontFamily:'Instrument Serif,serif',fontSize:26,marginBottom:18,color:'#1a1a1a'}}>Monthly Planner</div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:7,marginBottom:22}}>
-          {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=><div key={d} style={{textAlign:'center',fontSize:10,fontWeight:600,color:'#888',textTransform:'uppercase',letterSpacing:1,padding:'7px 0'}}>{d}</div>)}
-          {allDays.map((d,i)=>(
-            <div key={i} style={{borderRadius:10,padding:'9px 5px',textAlign:'center',border:`1.5px solid ${d.today?'#8aad8a':'#e8e4de'}`,background:d.today?'#f3f8f3':'white',cursor:'pointer',minHeight:52}}>
-              <div style={{fontSize:9,color:'#bbb'}}>{d.num===1?d.mo:''}</div>
-              <div style={{fontWeight:600,fontSize:14,color:d.today?'#5a7a5a':'#2a2a2a'}}>{d.num}</div>
+
+        <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:20,alignItems:'start'}} className="planner-grid-layout">
+
+          {/* Calendar */}
+          <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:5,marginBottom:8}}>
+              {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>(
+                <div key={d} style={{textAlign:'center',fontSize:10,fontWeight:600,color:'#888',textTransform:'uppercase',letterSpacing:0.5,padding:'6px 0'}}>{d}</div>
+              ))}
             </div>
-          ))}
-        </div>
-        <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20}}>
-          <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>Scheduled Habits</div>
-          <div style={{display:'flex',flexDirection:'column',gap:10}}>
-            {habits.filter(h=>h.time).map(h=>(
-              <div key={h.key} style={{display:'flex',gap:12,alignItems:'center',padding:'10px 14px',background:'#f7f3ed',borderRadius:12,border:'1px solid #e8e4de'}}>
-                <span style={{fontSize:20}}>{h.emoji}</span>
-                <div style={{flex:1}}><div style={{fontSize:13,fontWeight:500}}>{h.name}</div><div style={{fontSize:11,color:'#888'}}>{h.time}</div></div>
-                <div style={{fontSize:11,color:done.includes(h.key)?'#5a7a5a':'#888',fontWeight:600}}>{done.includes(h.key)?'✓ Done':'Today'}</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:5}}>
+              {allDays.map((d,i)=>(
+                <div key={i}
+                  onClick={()=>!d.isFuture && loadDayStats(d.dateStr)}
+                  style={{
+                    borderRadius:10,padding:'8px 4px',textAlign:'center',
+                    border:`1.5px solid ${d.isSelected?'#5a7a5a':d.isToday?'#8aad8a':'#e8e4de'}`,
+                    background:d.isSelected?'#1a2e1a':d.isToday?'#f3f8f3':'white',
+                    cursor:d.isFuture?'default':'pointer',
+                    opacity:d.isFuture?0.35:1,
+                    transition:'all 0.15s',
+                  }}
+                >
+                  <div style={{fontSize:9,color:d.isSelected?'#7ac47a':'#bbb'}}>{d.num===1?d.mo:''}</div>
+                  <div style={{fontWeight:600,fontSize:13,color:d.isSelected?'white':d.isToday?'#5a7a5a':'#2a2a2a'}}>{d.num}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{fontSize:11,color:'#aaa',marginTop:12,textAlign:'center'}}>Tap any past day to see your stats</div>
+          </div>
+
+          {/* Day stats panel */}
+          <div>
+            {!selectedDay && (
+              <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:24,textAlign:'center'}}>
+                <div style={{fontSize:32,marginBottom:12}}>📅</div>
+                <div style={{fontFamily:'Instrument Serif,serif',fontSize:18,color:'#1a1a1a',marginBottom:6}}>Select a day</div>
+                <div style={{fontSize:13,color:'#888',lineHeight:1.5}}>Tap any date on the calendar to see your habit completions and routine activity for that day.</div>
               </div>
-            ))}
+            )}
+
+            {selectedDay && dayStatsLoading && (
+              <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:24,textAlign:'center'}}>
+                <div style={{fontSize:24,marginBottom:8}}>⏳</div>
+                <div style={{fontSize:13,color:'#888'}}>Loading stats...</div>
+              </div>
+            )}
+
+            {selectedDay && !dayStatsLoading && dayStats && (
+              <div style={{display:'flex',flexDirection:'column',gap:12}}>
+                {/* Date header */}
+                <div style={{background:'#1a2e1a',borderRadius:20,padding:20,color:'white'}}>
+                  <div style={{fontSize:11,color:'#4a6a4a',textTransform:'uppercase',letterSpacing:1,marginBottom:4}}>
+                    {new Date(selectedDay+'T12:00:00').toLocaleDateString('en-US',{weekday:'long'})}
+                  </div>
+                  <div style={{fontFamily:'Instrument Serif,serif',fontSize:22,color:'white',marginBottom:12}}>
+                    {new Date(selectedDay+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric'})}
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
+                    {[
+                      {v:dayStats.completed.length,l:'Habits done',c:'#7ac47a'},
+                      {v:`+${dayStats.totalCoins}`,l:'Coins earned',c:'#d4af6a'},
+                      {v:`+${dayStats.totalGE}`,l:'GE generated',c:'#4ecb71'},
+                    ].map(s=>(
+                      <div key={s.l} style={{textAlign:'center',background:'rgba(255,255,255,0.06)',borderRadius:10,padding:'10px 6px'}}>
+                        <div style={{fontFamily:'Syne,sans-serif',fontSize:18,fontWeight:700,color:s.c}}>{s.v}</div>
+                        <div style={{fontSize:10,color:'#4a6a4a',marginTop:3}}>{s.l}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Completed habits */}
+                <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:18}}>
+                  <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:12}}>
+                    Habits completed ({dayStats.completed.length})
+                  </div>
+                  {dayStats.completed.length === 0 ? (
+                    <div style={{fontSize:13,color:'#bbb',textAlign:'center',padding:'12px 0'}}>No habits recorded</div>
+                  ) : (
+                    <div style={{display:'flex',flexDirection:'column',gap:7}}>
+                      {dayStats.completed.map(h=>(
+                        <div key={h.key} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 10px',background:'#f3f8f3',borderRadius:10,border:'1px solid #b5ceb5'}}>
+                          <span style={{fontSize:18}}>{h.emoji}</span>
+                          <span style={{flex:1,fontSize:13,fontWeight:500}}>{h.name}</span>
+                          <span style={{fontSize:11,color:'#d4af6a',fontWeight:600}}>+{h.coins} 🪙</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Routine completions */}
+                {dayStats.routineDone.length > 0 && (
+                  <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:18}}>
+                    <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:12}}>
+                      Routines completed
+                    </div>
+                    <div style={{display:'flex',flexDirection:'column',gap:7}}>
+                      {dayStats.routineDone.map(r=>{
+                        const rd=ROUTINES[r.key];
+                        if(!rd) return null;
+                        return(
+                          <div key={r.key} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 10px',background:'#f7f3ed',borderRadius:10,border:'1px solid #e8e4de'}}>
+                            <span style={{fontSize:18}}>{rd.icon}</span>
+                            <span style={{flex:1,fontSize:13,fontWeight:500}}>{rd.label}</span>
+                            <span style={{fontFamily:'Syne,sans-serif',fontSize:13,fontWeight:700,color:'#5a7a5a'}}>{r.count}x</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -847,7 +1139,7 @@ export default function Dashboard() {
   return(
     <div style={{display:'flex',minHeight:'100vh',background:'#f7f3ed',overflowX:'hidden'}}>
       <Sidebar/>
-      <div style={{marginLeft:72,flex:1,minWidth:0}}>
+      <div style={{marginLeft:sidebarOpen?220:0,flex:1,minWidth:0,transition:'margin-left 0.25s ease'}}>
         <TopBar title={cur.t} sub={cur.s}/>
         <div style={{overflowX:'hidden'}}>
           {tab==='dashboard'  && <TabDashboard/>}
@@ -869,8 +1161,18 @@ export default function Dashboard() {
         @keyframes pulseGe{0%,100%{box-shadow:0 0 20px rgba(78,203,113,0.35)}50%{box-shadow:0 0 36px rgba(78,203,113,0.5)}}
         .toast.show{opacity:1!important;transform:translateX(-50%) translateY(0)!important;}
         *{min-width:0;}
-        @media(max-width:1100px){.dash-main-grid{grid-template-columns:1fr!important}.stats-row{grid-template-columns:repeat(2,1fr)!important}.routine-grid{grid-template-columns:1fr!important}.community-grid{grid-template-columns:1fr!important}.settings-grid{grid-template-columns:1fr!important}}
-        @media(max-width:600px){.dash-main-grid{grid-template-columns:1fr!important}#bloom-toast{white-space:normal!important;text-align:center;max-width:80vw}}
+        @media(max-width:1100px){
+          .dash-main-grid{grid-template-columns:1fr!important}
+          .stats-row{grid-template-columns:repeat(2,1fr)!important}
+          .routine-grid{grid-template-columns:1fr!important}
+          .community-grid{grid-template-columns:1fr!important}
+          .settings-grid{grid-template-columns:1fr!important}
+          .planner-grid-layout{grid-template-columns:1fr!important}
+        }
+        @media(max-width:600px){
+          .dash-main-grid{grid-template-columns:1fr!important}
+          #bloom-toast{white-space:normal!important;text-align:center;max-width:80vw}
+        }
       `}</style>
     </div>
   );
