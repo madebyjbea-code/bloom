@@ -439,8 +439,142 @@ export default function Onboarding({ onComplete }) {
   }
 
   // ─────────────────────────────────────────────────────────
-  // RENDER: INTRO
+  // SIGN IN — returning user, access code only
   // ─────────────────────────────────────────────────────────
+  const [signinCode, setSigninCode] = useState('');
+  const [signinError, setSigninError] = useState('');
+  const [signinLoading, setSigninLoading] = useState(false);
+
+  async function handleSignIn(e) {
+    e.preventDefault();
+    if (!signinCode.trim()) return;
+    setSigninLoading(true);
+    setSigninError('');
+
+    try {
+      const code = signinCode.trim().toLowerCase();
+      const { data: existing } = await supabase
+        .from('users')
+        .select('*')
+        .eq('access_code', code)
+        .order('created_at', { ascending: false });
+
+      if (!existing || existing.length === 0) {
+        setSigninError('No account found with that code. Check your purchase email or start fresh.');
+        setSigninLoading(false);
+        return;
+      }
+
+      const u = existing[0];
+      const { data: stats } = await supabase
+        .from('user_stats')
+        .select('*')
+        .eq('user_id', u.id)
+        .single();
+
+      setUser({
+        userId: u.id,
+        accessCode: u.access_code,
+        name: u.name,
+        avatarType: u.avatar_type,
+        avatarName: u.avatar_name,
+        avatarEmoji: u.avatar_emoji,
+        chronotype: u.chronotype,
+        lifestyleLevel: u.lifestyle_level,
+        archetypeKey: u.archetype_key || null,
+        archetypeName: u.archetype_name || null,
+        archetypeIcon: u.archetype_icon || null,
+        health: stats?.health ?? 78,
+        coins: stats?.coins ?? 0,
+        greenEnergy: stats?.green_energy ?? 0,
+        level: stats?.level ?? 1,
+      });
+
+      const src = u.archetype_key || u.chronotype || 'steadybuilder';
+      setHabits(getHabitsForUser(src, u.current_week || 1));
+      onComplete();
+    } catch (err) {
+      console.error(err);
+      setSigninError('Something went wrong. Please try again.');
+    } finally {
+      setSigninLoading(false);
+    }
+  }
+
+  // ── RENDER: SIGN IN ──────────────────────────────────────
+  if (phase === 'signin') {
+    return (
+      <div style={styles.page}>
+        <div style={styles.container}>
+          <div style={styles.logoBar}>
+            <span style={styles.logo}>BLOOM</span>
+            <span style={styles.pill}>🌿 Spring Wellness</span>
+          </div>
+
+          <div style={{ textAlign: 'center', marginBottom: 32 }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>🌱</div>
+            <h1 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 28, fontWeight: 400, color: '#1a1a1a', marginBottom: 8 }}>
+              Welcome back
+            </h1>
+            <p style={{ fontSize: 15, color: '#888', lineHeight: 1.6 }}>
+              Enter your access code to continue your program
+            </p>
+          </div>
+
+          <div style={styles.qCard}>
+            <form onSubmit={handleSignIn} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div>
+                <label style={styles.inputLabel}>Your access code</label>
+                <input
+                  type="text"
+                  value={signinCode}
+                  onChange={e => setSigninCode(e.target.value)}
+                  placeholder="e.g. bloom-spring-007"
+                  autoFocus
+                  style={{ ...styles.input, fontSize: 16, letterSpacing: '0.5px', textAlign: 'center' }}
+                  onFocus={e => e.target.style.borderColor = 'var(--sage)'}
+                  onBlur={e => e.target.style.borderColor = '#e8e4de'}
+                />
+                <p style={{ fontSize: 12, color: '#aaa', marginTop: 6, textAlign: 'center' }}>
+                  This was emailed to you after purchase
+                </p>
+              </div>
+
+              {signinError && (
+                <div style={{ background: '#fdf0f0', border: '1px solid #e07070', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#c05050', lineHeight: 1.5 }}>
+                  {signinError}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={signinLoading || !signinCode.trim()}
+                style={{ ...styles.btnPrimary, opacity: signinLoading || !signinCode.trim() ? 0.6 : 1, cursor: signinLoading || !signinCode.trim() ? 'not-allowed' : 'pointer' }}
+              >
+                {signinLoading ? 'Signing in...' : 'Continue to my program →'}
+              </button>
+            </form>
+          </div>
+
+          <button
+            onClick={() => setPhase('intro')}
+            style={{ background: 'transparent', border: 'none', color: '#aaa', fontSize: 13, cursor: 'pointer', marginTop: 16, display: 'block', textAlign: 'center', width: '100%', fontFamily: 'DM Sans, sans-serif' }}
+          >
+            ← Back to intro
+          </button>
+
+          <div style={{ textAlign: 'center', marginTop: 16, fontSize: 12, color: '#bbb' }}>
+            Don&apos;t have a code?{' '}
+            <a href="https://jbeastudios.com" target="_blank" rel="noreferrer" style={{ color: 'var(--sage-dark)', textDecoration: 'none', fontWeight: 500 }}>
+              Get access →
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── RENDER: INTRO ────────────────────────────────────────
   if (phase === 'intro') {
     return (
       <div style={styles.page}>
@@ -493,6 +627,15 @@ export default function Onboarding({ onComplete }) {
 
           <button style={styles.btnPrimary} onClick={() => setPhase('quiz')}>
             Map my archetype →
+          </button>
+
+          <button
+            onClick={() => setPhase('signin')}
+            style={{ background: 'transparent', border: '1.5px solid #e8e4de', borderRadius: 12, padding: '12px 24px', fontSize: 14, color: '#888', cursor: 'pointer', marginTop: 12, width: '100%', fontFamily: 'DM Sans, sans-serif', fontWeight: 500, transition: 'all 0.2s' }}
+            onMouseOver={e => { e.currentTarget.style.borderColor = 'var(--sage)'; e.currentTarget.style.color = 'var(--sage-dark)'; }}
+            onMouseOut={e => { e.currentTarget.style.borderColor = '#e8e4de'; e.currentTarget.style.color = '#888'; }}
+          >
+            Already have an account? Sign in →
           </button>
         </div>
       </div>
