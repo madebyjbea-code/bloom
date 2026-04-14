@@ -523,13 +523,13 @@ export default function Dashboard() {
 
   const Sidebar=()=>(
     <>
-      {/* Collapsed toggle button — always visible */}
+      {/* Collapsed toggle button — vertically centred, always visible */}
       <button
         onClick={()=>setSidebarOpen(o=>!o)}
         title={sidebarOpen?'Collapse sidebar':'Expand sidebar'}
-        style={{position:'fixed',top:16,left:sidebarOpen?186:16,width:32,height:32,borderRadius:99,background:'#1a2e1a',border:'2px solid #2d5a2d',cursor:'pointer',fontSize:13,color:'#7ac47a',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',transition:'left 0.25s ease',boxShadow:'0 2px 8px rgba(0,0,0,0.3)'}}
+        style={{position:'fixed',top:'50%',transform:'translateY(-50%)',left:sidebarOpen?220:0,width:20,height:48,borderRadius:'0 8px 8px 0',background:'#1a2e1a',border:'1.5px solid #2d5a2d',borderLeft:'none',cursor:'pointer',fontSize:11,color:'#7ac47a',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',transition:'left 0.25s ease',boxShadow:'2px 0 8px rgba(0,0,0,0.2)'}}
       >
-        {sidebarOpen?'←':'→'}
+        {sidebarOpen?'‹':'›'}
       </button>
 
       {/* Sidebar panel */}

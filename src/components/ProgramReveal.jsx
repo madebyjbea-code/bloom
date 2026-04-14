@@ -260,58 +260,26 @@ export default function ProgramReveal({ onAccept }) {
         {showBrowse && (
           <div>
             <h3 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 24, marginBottom: 8, color: '#1a1a16' }}>
-              Explore other Spring programs
+              All 8 Spring programs
             </h3>
-            <p style={{ fontSize: 13, color: '#888', marginBottom: 20 }}>
-              Browse alternatives — select one to preview it, then accept when ready.
+            <p style={{ fontSize: 13, color: '#888', marginBottom: 20, lineHeight: 1.6 }}>
+              Every archetype gets a genuinely different plan — different pillars, different science, different timing. Tap any to preview it.
             </p>
 
-            <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 11, fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: '#888', marginBottom: 10 }}>
-              For your archetype
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 24 }}>
-              <div style={{ border: `2px solid #8aad8a`, background: '#f3f8f3', borderRadius: 14, padding: 18 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#8aad8a', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>✓ Your Plan</div>
-                <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{program.programTitle} {program.programTitleItalic}</div>
-                <div style={{ fontSize: 12, color: '#888' }}>6 archetype-tailored habits · 4 progressive weeks</div>
-              </div>
-              <div style={{ border: '1.5px solid #e8e4de', background: 'white', borderRadius: 14, padding: 18, cursor: 'pointer' }}
-                onClick={() => { setShowBrowse(false); window.scrollTo(0,0); }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#888', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>Alternate</div>
-                <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Sleep First Reset</div>
-                <div style={{ fontSize: 12, color: '#888' }}>Prioritises sleep quality above all other pillars</div>
-                <div style={{ fontSize: 11, color: '#8aad8a', marginTop: 8, fontWeight: 600 }}>Coming in full version →</div>
-              </div>
-              <div style={{ border: '1.5px solid #e8e4de', background: 'white', borderRadius: 14, padding: 18, cursor: 'pointer' }}
-                onClick={() => { setShowBrowse(false); window.scrollTo(0,0); }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#888', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>Alternate</div>
-                <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Gut Reset Spring</div>
-                <div style={{ fontSize: 12, color: '#888' }}>Nutrition and microbiome focus · ideal if mood is a concern</div>
-                <div style={{ fontSize: 11, color: '#8aad8a', marginTop: 8, fontWeight: 600 }}>Coming in full version →</div>
-              </div>
-            </div>
-
-            <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 11, fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: '#888', marginBottom: 10 }}>
-              Other wellness types
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 32 }}>
-              {[
-                { tag: 'Lion · Foundation', name: 'Early Light Reset', desc: 'Dawn protocols · sunrise walks · power-down routines' },
-                { tag: 'Wolf · Building', name: 'Night Bloom Reset', desc: 'Late-shifted circadian support · evening nutrition' },
-                { tag: 'Dolphin · Foundation', name: 'Calm & Ground', desc: 'Stress regulation · nervous system habits · irregular schedule' },
-              ].map(p => (
-                <div
-                  key={p.name}
-                  style={{ border: '1.5px solid #e8e4de', background: 'white', borderRadius: 14, padding: 18, cursor: 'pointer', transition: 'all 0.2s' }}
-                  onMouseOver={e => e.currentTarget.style.borderColor = '#8aad8a'}
-                  onMouseOut={e => e.currentTarget.style.borderColor = '#e8e4de'}
-                >
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#888', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>{p.tag}</div>
-                  <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{p.name}</div>
-                  <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>{p.desc}</div>
-                  <div style={{ fontSize: 11, color: '#8aad8a', fontWeight: 600 }}>Coming in full version →</div>
-                </div>
-              ))}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginBottom: 32 }}>
+              {Object.entries(ARCHETYPE_PROGRAMS).map(([key, p]) => {
+                const isYours = key === archetypeKey;
+                const [previewKey, setPreviewKey] = [null, () => {}]; // local state handled below
+                return (
+                  <ArchetypePreviewCard
+                    key={key}
+                    archetypeKey={key}
+                    program={p}
+                    isYours={isYours}
+                    onAccept={onAccept}
+                  />
+                );
+              })}
             </div>
 
             <button
@@ -323,6 +291,90 @@ export default function ProgramReveal({ onAccept }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Archetype preview card with expand/collapse ──────────────────────────────
+function ArchetypePreviewCard({ archetypeKey, program, isYours, onAccept }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const ARCHETYPE_LABELS = {
+    burnout:      { name: 'The Burnt-Out Rebuilder', icon: '🌿', chrono: 'Dolphin' },
+    nightowl:     { name: 'The Night Owl',           icon: '🌙', chrono: 'Wolf' },
+    optimizer:    { name: 'The Optimizer',            icon: '⚡', chrono: 'Lion' },
+    scattered:    { name: 'The Scattered Spark',      icon: '✨', chrono: 'Dolphin' },
+    nurturer:     { name: 'The Nourishment Seeker',   icon: '🌸', chrono: 'Bear' },
+    rebuilder:    { name: 'The Steady Rebuilder',     icon: '🌱', chrono: 'Bear' },
+    slowstarter:  { name: 'The Slow Starter',         icon: '🌅', chrono: 'Bear' },
+    steadybuilder:{ name: 'The Steady Builder',       icon: '🏗',  chrono: 'Bear' },
+  };
+
+  const label = ARCHETYPE_LABELS[archetypeKey] || { name: archetypeKey, icon: '🌿', chrono: 'Bear' };
+
+  return (
+    <div style={{
+      border: `${isYours ? '2px' : '1.5px'} solid ${isYours ? '#8aad8a' : '#e8e4de'}`,
+      background: isYours ? '#f3f8f3' : 'white',
+      borderRadius: 16,
+      padding: 18,
+      transition: 'all 0.2s',
+      borderTop: `3px solid ${program.color}`,
+    }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+        <div>
+          {isYours && (
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#8aad8a', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>✓ Your Plan</div>
+          )}
+          <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: '#1a1a16', marginBottom: 2 }}>
+            {program.programTitle} {program.programTitleItalic}
+          </div>
+          <div style={{ fontSize: 11, color: '#888' }}>{label.icon} {label.name}</div>
+        </div>
+        <div style={{ fontSize: 11, color: '#aaa', flexShrink: 0, marginLeft: 8 }}>🕐 {label.chrono}</div>
+      </div>
+
+      {/* Description */}
+      <div style={{ fontSize: 12, color: '#666', lineHeight: 1.55, marginBottom: 12 }}>
+        {program.programDesc.slice(0, 100)}...
+      </div>
+
+      {/* Pillar names — always visible */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
+        {program.pillars.map((pillar, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#555' }}>
+            <span style={{ fontSize: 14, flexShrink: 0 }}>{pillar.icon}</span>
+            <span style={{ fontWeight: 500 }}>{pillar.name}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Expand to see habits + science */}
+      <button
+        onClick={() => setExpanded(e => !e)}
+        style={{ width: '100%', padding: '7px 0', background: 'transparent', border: `1px solid ${program.color}44`, borderRadius: 8, fontSize: 12, color: program.color, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', transition: 'all 0.2s', marginBottom: expanded ? 12 : 0 }}
+      >
+        {expanded ? 'Hide detail ↑' : 'See habits & science ↓'}
+      </button>
+
+      {expanded && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {program.pillars.map((pillar, i) => (
+            <div key={i} style={{ background: '#f7f3ed', borderRadius: 10, padding: '10px 12px', borderLeft: `3px solid ${program.color}` }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#2a2a2a', marginBottom: 3 }}>{pillar.icon} {pillar.name}</div>
+              <div style={{ fontSize: 12, color: '#5a7a5a', fontWeight: 500, marginBottom: 4 }}>{pillar.habit}</div>
+              <div style={{ fontSize: 11, color: '#888', fontStyle: 'italic' }}>🔬 {pillar.science}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!isYours && (
+        <div style={{ marginTop: 12, fontSize: 11, color: '#aaa', textAlign: 'center', lineHeight: 1.5 }}>
+          Your quiz results determined your archetype. Retake the quiz from Settings to change your plan.
+        </div>
+      )}
     </div>
   );
 }
