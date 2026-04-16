@@ -1036,21 +1036,26 @@ export default function Dashboard() {
   );
 
   const TabSettings=()=>(
-    <div style={{padding:'22px 26px',maxWidth:760}}>
-      <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:24,padding:26,display:'flex',gap:18,alignItems:'center',marginBottom:18,flexWrap:'wrap'}}>
-        <div style={{width:68,height:68,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:34,border:'3px solid rgba(255,255,255,0.7)',flexShrink:0}}>{avEmoji||'🦔'}</div>
+    <div style={{padding:'22px 26px',maxWidth:680}}>
+
+      {/* Profile header */}
+      <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:24,padding:26,display:'flex',gap:18,alignItems:'center',marginBottom:16,flexWrap:'wrap'}}>
+        <div style={{width:64,height:64,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:30,border:'3px solid rgba(255,255,255,0.7)',flexShrink:0}}>🧑‍🌿</div>
         <div style={{flex:1}}>
-          <div style={{fontFamily:'Instrument Serif,serif',fontSize:22,color:'#1a1a1a',marginBottom:5}}>{name}</div>
-          <div style={{display:'inline-flex',alignItems:'center',gap:6,background:'#f3f8f3',border:'1px solid #b5ceb5',borderRadius:99,padding:'4px 12px',fontSize:12,color:'#5a7a5a',fontWeight:500,marginBottom:6}}>{arch.icon} {arch.name}</div>
-          <div style={{fontSize:13,color:'#888'}}>Spring Energy Reset · Week {week} of 4 · {lvMap[lvl]||'Building'}</div>
+          <div style={{fontFamily:'Instrument Serif,serif',fontSize:22,color:'#1a1a1a',marginBottom:6}}>{name}</div>
+          <div style={{display:'inline-flex',alignItems:'center',gap:6,background:'#f3f8f3',border:'1px solid #b5ceb5',borderRadius:99,padding:'4px 12px',fontSize:12,color:'#5a7a5a',fontWeight:500}}>{arch.icon} {arch.name}</div>
         </div>
-        <div style={{display:'flex',gap:18}}>
+        <div style={{display:'flex',gap:20}}>
           {[{v:done.length,l:'today'},{v:coins.toLocaleString(),l:'coins'},{v:`Lv.${level}`,l:'level'}].map(s=>(
-            <div key={s.l} style={{textAlign:'center'}}><div style={{fontFamily:'Syne,sans-serif',fontSize:19,fontWeight:700,color:'#1a1a1a'}}>{s.v}</div><div style={{fontSize:11,color:'#888',marginTop:2}}>{s.l}</div></div>
+            <div key={s.l} style={{textAlign:'center'}}>
+              <div style={{fontFamily:'Syne,sans-serif',fontSize:20,fontWeight:700,color:'#1a1a1a'}}>{s.v}</div>
+              <div style={{fontSize:11,color:'#888',marginTop:2}}>{s.l}</div>
+            </div>
           ))}
         </div>
       </div>
 
+      {/* Program progress */}
       <div style={{background:'linear-gradient(135deg,#1a2e1a,#2a3a2a)',borderRadius:20,padding:20,color:'white',marginBottom:16}}>
         <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#3a5a3a',marginBottom:14}}>Program Progress</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
@@ -1064,45 +1069,36 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}} className="settings-grid">
-        <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:18}}>
-          <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>Notifications</div>
-          {Object.entries(notifs).map(([k,v])=>(
-            <div key={k} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'9px 0',borderBottom:'1px solid #f0ece6'}}>
-              <span style={{fontSize:13,color:'#2a2a2a',textTransform:'capitalize'}}>{k.replace(/([A-Z])/g,' $1')} alerts</span>
-              <button onClick={()=>setNotifs(p=>({...p,[k]:!p[k]}))} style={{width:36,height:21,borderRadius:99,background:v?'#8aad8a':'#e8e4de',border:'none',cursor:'pointer',position:'relative',transition:'background 0.2s'}}>
-                <div style={{width:15,height:15,background:'white',borderRadius:'50%',position:'absolute',top:3,left:v?18:3,transition:'left 0.2s'}}/>
-              </button>
-            </div>
-          ))}
-        </div>
-        <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:18}}>
-          <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>Habit Reminders</div>
-          {habits.filter(h=>h.time).slice(0,5).map(h=>(
-            <div key={h.key} style={{display:'flex',justifyContent:'space-between',padding:'9px 0',borderBottom:'1px solid #f0ece6'}}>
-              <span style={{fontSize:13}}>{h.emoji} {h.name}</span>
-              <span style={{fontSize:12,color:'#5a7a5a',fontWeight:500,cursor:'pointer'}}>{h.time}</span>
-            </div>
-          ))}
-          <div style={{fontSize:11,color:'#aaa',marginTop:8}}>Tap time to adjust in full version</div>
-        </div>
-        <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:18}}>
-          <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>Device & Data</div>
-          {[{l:'Apple Health',v:'Connect',c:'#888'},{l:'Fitbit',v:'Connected ✓',c:'#5a7a5a'},{l:'Export data',v:'Download CSV',c:'#888'}].map(r=>(
-            <div key={r.l} style={{display:'flex',justifyContent:'space-between',padding:'9px 0',borderBottom:'1px solid #f0ece6'}}>
-              <span style={{fontSize:13}}>{r.l}</span><span style={{fontSize:12,color:r.c,fontWeight:500,cursor:'pointer'}}>{r.v}</span>
-            </div>
-          ))}
-        </div>
-        <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:18}}>
-          <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>Account</div>
-          {[{l:'Wellness Archetype',v:`${arch.icon} ${arch.name} · ${lvMap[lvl]||'Building'}`},{l:'Program',v:'Spring Wellness Program 2026'},{l:'Chronotype',v:chronotype?chronotype.charAt(0).toUpperCase()+chronotype.slice(1):'Bear'},{l:'Retake quiz',v:'Retake →'}].map(r=>(
-            <div key={r.l} style={{display:'flex',justifyContent:'space-between',padding:'9px 0',borderBottom:'1px solid #f0ece6'}}>
-              <span style={{fontSize:13}}>{r.l}</span><span style={{fontSize:12,color:'#5a7a5a',fontWeight:500,cursor:'pointer'}}>{r.v}</span>
-            </div>
-          ))}
-        </div>
+      {/* Account info — read only, no broken actions */}
+      <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20,marginBottom:16}}>
+        <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>Your Program</div>
+        {[
+          {l:'Wellness Archetype', v:`${arch.icon} ${arch.name}`},
+          {l:'Lifestyle Level',    v:lvMap[lvl]||'Building'},
+          {l:'Chronotype',        v:chronotype?chronotype.charAt(0).toUpperCase()+chronotype.slice(1):'Bear'},
+          {l:'Program',           v:'Spring Wellness 2026'},
+          {l:'Access',            v:'Founding Beta · Lifetime'},
+        ].map(r=>(
+          <div key={r.l} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:'1px solid #f0ece6'}}>
+            <span style={{fontSize:13,color:'#555'}}>{r.l}</span>
+            <span style={{fontSize:13,color:'#1a1a1a',fontWeight:500}}>{r.v}</span>
+          </div>
+        ))}
       </div>
+
+      {/* Coming soon — honest placeholder */}
+      <div style={{background:'#f7f3ed',border:'1.5px solid #e8e4de',borderRadius:20,padding:20,textAlign:'center'}}>
+        <div style={{fontSize:22,marginBottom:10}}>⚙️</div>
+        <div style={{fontSize:14,fontWeight:500,color:'#2a2a2a',marginBottom:6}}>More settings coming soon</div>
+        <div style={{fontSize:13,color:'#888',lineHeight:1.6,marginBottom:14}}>
+          Notification preferences, device sync, and account management are on the roadmap. Your feedback shapes what gets built first.
+        </div>
+        <a href="https://instagram.com/byjbea" target="_blank" rel="noreferrer"
+          style={{display:'inline-flex',alignItems:'center',gap:6,background:'#1a2e1a',color:'white',padding:'10px 20px',borderRadius:99,fontSize:13,fontWeight:600,textDecoration:'none'}}>
+          DM @byjbea with requests →
+        </a>
+      </div>
+
     </div>
   );
 
