@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useStore } from '../lib/store';
 
-const ADMIN_USER_ID = 'YOUR_USER_ID_HERE';
+const ADMIN_USER_ID = '3f5a0efe-6932-4821-b7fa-334a8f0bffc3';
 
 const POST_CATEGORIES = [
   { key: 'check_in',    label: '🌿 Wellness',    color: '#5a7a5a' },
