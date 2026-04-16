@@ -75,7 +75,7 @@ const NAV = [
 
 // ── Your admin user ID — paste from Supabase users table ──
 // Same value as in CommunityFeed.jsx
-const ADMIN_USER_ID = 'YOUR_USER_ID_HERE';
+const ADMIN_USER_ID = '3f5a0efe-6932-4821-b7fa-334a8f0bffc3';
 
 function fmt(secs) {
   return `${String(Math.floor(secs/60)).padStart(2,'0')}:${String(secs%60).padStart(2,'0')}`;
