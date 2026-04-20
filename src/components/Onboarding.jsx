@@ -742,7 +742,7 @@ export default function Onboarding({ onComplete }) {
                 rel="noreferrer"
                 style={{ fontSize: 13, color: 'var(--sage-dark)', fontWeight: 600, textDecoration: 'none' }}
               >
-                Don't have a code? Get access for €10 →
+                Don&apos;t have a code? Get access for €10 →
               </a>
             </div>
 
