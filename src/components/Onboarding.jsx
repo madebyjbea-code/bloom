@@ -204,7 +204,7 @@ const ARCHETYPE_CHRONO = {
 
 // ─── COMPONENT ────────────────────────────────────────────
 export default function Onboarding({ onComplete }) {
-  const [phase, setPhase] = useState('intro'); // intro | quiz | name
+  const [phase, setPhase] = useState('intro'); // intro | signin | quiz | gate | name
   const [current, setCurrent] = useState(0);
   const [answers, setAnswers] = useState(new Array(QUESTIONS.length).fill(null));
   const [collectedScores, setCollectedScores] = useState({});
@@ -214,6 +214,11 @@ export default function Onboarding({ onComplete }) {
   const [avatarName, setAvatarName] = useState('Fern');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Gate state
+  const [gateCode, setGateCode] = useState('');
+  const [gateError, setGateError] = useState('');
+  const [gateLoading, setGateLoading] = useState(false);
 
   const setUser = useStore((s) => s.setUser);
   const setHabits = useStore((s) => s.setHabits);
@@ -259,7 +264,10 @@ export default function Onboarding({ onComplete }) {
 
     setCollectedScores(newScores);
 
-    if (current < QUESTIONS.length - 1) {
+    // Show gate after question 4 (index 3)
+    if (current === 3) {
+      setPhase('gate');
+    } else if (current < QUESTIONS.length - 1) {
       setCurrent(current + 1);
     } else {
       setPhase('name');
@@ -501,6 +509,80 @@ export default function Onboarding({ onComplete }) {
     }
   }
 
+  // ── Gate — validate code mid-quiz ──────────────────────
+  async function handleGate(e) {
+    e.preventDefault();
+    if (!gateCode.trim()) return;
+    setGateLoading(true);
+    setGateError('');
+
+    try {
+      const code = gateCode.trim().toLowerCase();
+
+      // Check if returning user
+      const { data: existing } = await supabase
+        .from('users')
+        .select('*')
+        .eq('access_code', code)
+        .single();
+
+      if (existing) {
+        // Returning user — load account and skip to dashboard
+        const { data: stats } = await supabase
+          .from('user_stats')
+          .select('*')
+          .eq('user_id', existing.id)
+          .single();
+
+        setUser({
+          userId: existing.id,
+          accessCode: existing.access_code,
+          name: existing.name,
+          avatarType: existing.avatar_type,
+          avatarName: existing.avatar_name,
+          avatarEmoji: existing.avatar_emoji,
+          chronotype: existing.chronotype,
+          lifestyleLevel: existing.lifestyle_level,
+          archetypeKey: existing.archetype_key || null,
+          archetypeName: existing.archetype_name || null,
+          archetypeIcon: existing.archetype_icon || null,
+          health: stats?.health ?? 78,
+          coins: stats?.coins ?? 0,
+          greenEnergy: stats?.green_energy ?? 0,
+          level: stats?.level ?? 1,
+        });
+        const src = existing.archetype_key || existing.chronotype || 'steadybuilder';
+        setHabits(getHabitsForUser(src, existing.current_week || 1));
+        onComplete();
+        return;
+      }
+
+      // New user — validate against access_codes table
+      const { data: validCode } = await supabase
+        .from('access_codes')
+        .select('*')
+        .eq('code', code)
+        .eq('redeemed', false)
+        .single();
+
+      if (!validCode) {
+        setGateError('Invalid or already used access code. Check your purchase email.');
+        setGateLoading(false);
+        return;
+      }
+
+      // Valid — save code and continue quiz
+      setAccessCode(code);
+      setCurrent(4); // jump to question 5
+      setPhase('quiz');
+    } catch (err) {
+      console.error(err);
+      setGateError('Something went wrong. Please try again.');
+    } finally {
+      setGateLoading(false);
+    }
+  }
+
   // ── RENDER: SIGN IN ──────────────────────────────────────
   if (phase === 'signin') {
     return (
@@ -568,6 +650,108 @@ export default function Onboarding({ onComplete }) {
             <a href="https://jbeastudios.com" target="_blank" rel="noreferrer" style={{ color: 'var(--sage-dark)', textDecoration: 'none', fontWeight: 500 }}>
               Get access →
             </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── RENDER: GATE ─────────────────────────────────────────
+  if (phase === 'gate') {
+    return (
+      <div style={styles.page}>
+        <div style={styles.container}>
+          <div style={styles.logoBar}>
+            <span style={styles.logo}>well with j bea</span>
+          </div>
+
+          {/* Progress — frozen at q4 */}
+          <div style={{ marginBottom: 28 }}>
+            <div style={styles.progMeta}>
+              <span>Question 4 of {QUESTIONS.length} complete</span>
+              <span>30%</span>
+            </div>
+            <div style={styles.progBar}>
+              <div style={{ ...styles.progFill, width: '30%' }} />
+            </div>
+          </div>
+
+          {/* Teaser */}
+          <div style={styles.qCard}>
+            <div style={{ textAlign: 'center', marginBottom: 24 }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>🔮</div>
+              <h2 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 24, fontWeight: 400, color: '#1a1a1a', marginBottom: 8 }}>
+                Your archetype is taking shape
+              </h2>
+              <p style={{ fontSize: 14, color: '#888', lineHeight: 1.7 }}>
+                9 more questions to reveal your full Wellness Archetype and personalised 4-week program. Enter your access code to continue.
+              </p>
+            </div>
+
+            {/* What they get teaser */}
+            <div style={{ background: '#f7f3ed', borderRadius: 14, padding: '16px 18px', marginBottom: 22 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, color: '#888', marginBottom: 12 }}>What unlocks with access</div>
+              {[
+                '🌿 Your personal Wellness Archetype — one of 8 profiles',
+                '📋 4-week program built around your biology',
+                '⏱ Guided routines with step-by-step timer',
+                '🔬 Peer-reviewed science behind every habit',
+                '👥 Private Spring cohort community',
+              ].map(item => (
+                <div key={item} style={{ fontSize: 13, color: '#555', marginBottom: 8, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <span style={{ flexShrink: 0 }}>{item.split(' ')[0]}</span>
+                  <span>{item.split(' ').slice(1).join(' ')}</span>
+                </div>
+              ))}
+            </div>
+
+            <form onSubmit={handleGate} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={styles.inputLabel}>Access code</label>
+                <input
+                  type="text"
+                  value={gateCode}
+                  onChange={e => setGateCode(e.target.value)}
+                  placeholder="e.g. bloom-spring-007"
+                  autoFocus
+                  style={{ ...styles.input, textAlign: 'center', letterSpacing: '1px' }}
+                  onFocus={e => e.target.style.borderColor = 'var(--sage)'}
+                  onBlur={e => e.target.style.borderColor = '#e8e4de'}
+                />
+              </div>
+
+              {gateError && (
+                <div style={{ background: '#fdf0f0', border: '1px solid #e07070', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#c05050' }}>
+                  {gateError}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={gateLoading || !gateCode.trim()}
+                style={{ ...styles.btnPrimary, opacity: gateLoading || !gateCode.trim() ? 0.6 : 1, cursor: gateLoading || !gateCode.trim() ? 'not-allowed' : 'pointer' }}
+              >
+                {gateLoading ? 'Checking...' : 'Continue my quiz →'}
+              </button>
+            </form>
+
+            <div style={{ textAlign: 'center', marginTop: 16 }}>
+              <a
+                href="https://jbeastudios.com"
+                target="_blank"
+                rel="noreferrer"
+                style={{ fontSize: 13, color: 'var(--sage-dark)', fontWeight: 600, textDecoration: 'none' }}
+              >
+                Don't have a code? Get access for €10 →
+              </a>
+            </div>
+
+            <button
+              onClick={() => { setCurrent(3); setPhase('quiz'); }}
+              style={{ background: 'transparent', border: 'none', color: '#bbb', fontSize: 12, cursor: 'pointer', marginTop: 12, width: '100%', textAlign: 'center', fontFamily: 'DM Sans, sans-serif' }}
+            >
+              ← Back to quiz
+            </button>
           </div>
         </div>
       </div>
