@@ -1097,7 +1097,27 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
-
+      <button
+  onClick={async () => {
+    if (window.OneSignal) {
+      await window.OneSignal.Notifications.requestPermission();
+    }
+  }}
+  style={{
+    marginTop: 12,
+    padding: '10px 20px',
+    background: '#1a2e1a',
+    color: 'white',
+    border: 'none',
+    borderRadius: 12,
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif'
+  }}
+>
+  🔔 Enable notifications
+</button>
       {/* Coming soon — honest placeholder */}
       <div style={{background:'#f7f3ed',border:'1.5px solid #e8e4de',borderRadius:20,padding:20,textAlign:'center'}}>
         <div style={{fontSize:22,marginBottom:10}}>⚙️</div>
