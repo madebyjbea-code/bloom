@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { useStore } from '../lib/store';
 
 // Paste your OneSignal App ID here after creating your account at onesignal.com
-const ONESIGNAL_APP_ID = 'YOUR_ONESIGNAL_APP_ID';
+const ONESIGNAL_APP_ID = 'ede9e6ac-5493-439c-9f44-89a82acb21d8';
 
 export default function OneSignalProvider() {
   const userId = useStore(s => s.userId);
