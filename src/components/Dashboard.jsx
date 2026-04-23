@@ -95,7 +95,9 @@ function toast(msg) {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [tab, setTab]               = useState('dashboard');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(
+    typeof window !== 'undefined' ? window.innerWidth > 768 : true
+  );
   const [shopOpen, setShopOpen]     = useState(false);
   const [donateOpen, setDonateOpen] = useState(false);
   const [reflOpen, setReflOpen]     = useState(false);
