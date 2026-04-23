@@ -10,7 +10,6 @@ import CustomHabitModal from './CustomHabitModal';
 import FeedbackModal from './FeedbackModal';
 import TabRoadmap from './TabRoadmap';
 
-// ─── ROUTINES ────────────────────────────────────────────────────────────────
 const ROUTINES = {
   morning: {
     label: 'Morning Routine', icon: '🌅', color: '#d4a84a',
@@ -76,9 +75,8 @@ const NAV = [
   { key: 'roadmap',   icon: '🗺️',  label: 'Roadmap' },
 ];
 
-// ── Your admin user ID — paste from Supabase users table ──
-// Same value as in CommunityFeed.jsx
-const ADMIN_USER_ID = 'YOUR_USER_ID_HERE';
+// ── Paste your UUID from Supabase → users table → id column ──
+const ADMIN_USER_ID = '3f5a0efe-6932-4821-b7fa-334a8f0bffc3';
 
 function fmt(secs) {
   return `${String(Math.floor(secs/60)).padStart(2,'0')}:${String(secs%60).padStart(2,'0')}`;
@@ -92,7 +90,6 @@ function toast(msg) {
   setTimeout(() => el.classList.remove('show'), 3000);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [tab, setTab]               = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(
@@ -106,7 +103,6 @@ export default function Dashboard() {
   const [loading, setLoading]       = useState(true);
   const [week, setWeek]             = useState(1);
   const [day, setDay]               = useState(1);
-  const [avMode, setAvMode]         = useState('pet');
   const [notifs, setNotifs]         = useState({ habits:true, community:true, streaks:true, reflection:false });
   const [customHabitOpen, setCustomHabitOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen]       = useState(false);
@@ -121,7 +117,6 @@ export default function Dashboard() {
   });
   const [statsForm, setStatsForm] = useState({ sleep:'', mindfulness:'', steps:'', water:'' });
 
-  // Routine tracking
   const [routineFreqs, setRoutineFreqs] = useState(() => {
     try { return JSON.parse(localStorage.getItem('bloom-routine-freqs') || '{}'); } catch { return {}; }
   });
@@ -129,17 +124,15 @@ export default function Dashboard() {
     try { return JSON.parse(localStorage.getItem('bloom-routine-log') || '{}'); } catch { return {}; }
   });
 
-  // Planner selected day
-  const [selectedDay, setSelectedDay] = useState(null); // YYYY-MM-DD
+  const [selectedDay, setSelectedDay] = useState(null);
   const [dayStats, setDayStats]       = useState(null);
   const [dayStatsLoading, setDayStatsLoading] = useState(false);
 
-  // Routine timer
-  const [routine, setRoutine]       = useState(null);
-  const [rStep, setRStep]           = useState(0);
-  const [rSecs, setRSecs]           = useState(0);
-  const [rRunning, setRRunning]     = useState(false);
-  const rTimer                      = useRef(null);
+  const [routine, setRoutine]   = useState(null);
+  const [rStep, setRStep]       = useState(0);
+  const [rSecs, setRSecs]       = useState(0);
+  const [rRunning, setRRunning] = useState(false);
+  const rTimer                  = useRef(null);
 
   const userId        = useStore(s=>s.userId);
   const name          = useStore(s=>s.name);
@@ -167,15 +160,13 @@ export default function Dashboard() {
     : { name: archetypeName||'Spring Wellness Program', icon: archetypeIcon||'🌿' };
 
   const lvMap = { foundation:'Foundation', building:'Building', optimization:'Optimisation' };
-
-  // Combine program habits with custom habits for display
   const allHabits = [...habits, ...customHabits];
   const pct = allHabits.length>0 ? Math.round((done.length/allHabits.length)*100) : 0;
   const mood = health>70 ? 'Thriving · Streak bonus 🔥' : health>40 ? 'Building momentum 💪' : 'Needs care 🌱';
   const equipped = inventory.find(i=>i.equipped);
 
   useEffect(()=>{
-    checkDailyReset(); // reset completedToday if it's a new day
+    checkDailyReset();
     if(userId){ load(); loadInv(); }
   },[userId]);
 
@@ -224,9 +215,7 @@ export default function Dashboard() {
     return routineLog[`${key}_${today}`] || 0;
   }
 
-  function getRoutineFreq(key) {
-    return routineFreqs[key] || 1;
-  }
+  function getRoutineFreq(key) { return routineFreqs[key] || 1; }
 
   async function loadDayStats(dateStr) {
     setSelectedDay(dateStr);
@@ -235,21 +224,16 @@ export default function Dashboard() {
     try {
       if (userId) {
         const { data: completions } = await supabase
-          .from('habit_completions')
-          .select('habit_key')
-          .eq('user_id', userId)
-          .eq('date', dateStr);
+          .from('habit_completions').select('habit_key').eq('user_id', userId).eq('date', dateStr);
         const keys = completions?.map(c => c.habit_key) || [];
         const completed = allHabits.filter(h => keys.includes(h.key));
         const totalCoins = completed.reduce((a, h) => a + h.coins, 0);
         const totalGE = completed.reduce((a, h) => a + h.ge, 0);
-        // Routine completions from localStorage
         const routineDone = Object.entries(routineLog)
           .filter(([k]) => k.endsWith(`_${dateStr}`))
           .map(([k, v]) => ({ key: k.replace(`_${dateStr}`, ''), count: v }));
         setDayStats({ date: dateStr, completed, totalCoins, totalGE, routineDone });
       } else {
-        // localStorage only — check completedToday for today, empty for past
         const today = new Date().toISOString().split('T')[0];
         if (dateStr === today) {
           const completed = allHabits.filter(h => done.includes(h.key));
@@ -270,13 +254,10 @@ export default function Dashboard() {
   async function toggleHabit(h){
     const isD=done.includes(h.key);
     toggleH(h.key);
-
-    // Custom habits — local only, no DB write needed
     if(h.isCustom){
       if(!isD){
         const nc=coins+h.coins, ng=ge+h.ge, nh=Math.min(100,health+3);
         setStats({coins:nc,greenEnergy:ng,health:nh});
-        // Still persist to DB if user is logged in
         if(userId) await supabase.from('user_stats').update({coins:nc,green_energy:ng,health:nh}).eq('user_id',userId);
         toast(`✅ +${h.coins} 🪙${h.ge>0?` +${h.ge} ⚡`:''}`);
       } else {
@@ -287,8 +268,6 @@ export default function Dashboard() {
       }
       return;
     }
-
-    // Program habits — write to DB
     const today=new Date().toISOString().split('T')[0];
     if(!isD){
       if(userId) await supabase.from('habit_completions').insert({user_id:userId,habit_key:h.key,date:today});
@@ -339,7 +318,6 @@ export default function Dashboard() {
     setReflOpen(false); toast(`✨ Week ${prev} complete!`); load();
   }
 
-  // Routine timer logic
   function startRoutine(key){
     setRoutine(key); setRStep(0); setRSecs(ROUTINES[key].steps[0].duration*60);
     setRRunning(false); clearInterval(rTimer.current); setTab('routines');
@@ -389,7 +367,86 @@ export default function Dashboard() {
     </div>
   );
 
-  // ── Shared sub-components ──────────────────────────────────────────────────
+  // ── Notification button with confirmation state ────────────
+  const NotifButton = () => {
+    const [notifState, setNotifState] = useState(() => {
+      if (typeof window !== 'undefined' && Notification?.permission === 'granted') return 'granted';
+      if (typeof window !== 'undefined' && Notification?.permission === 'denied') return 'denied';
+      return 'idle';
+    });
+
+    async function handleEnable() {
+      setNotifState('loading');
+      try {
+        if (window.OneSignalDeferred) {
+          window.OneSignalDeferred.push(async function(OneSignal) {
+            const result = await OneSignal.Notifications.requestPermission();
+            if (result) {
+              setNotifState('granted');
+              toast('🔔 Notifications enabled!');
+            } else {
+              setNotifState('denied');
+            }
+          });
+        } else {
+          // Fallback to native browser API
+          const result = await Notification.requestPermission();
+          if (result === 'granted') {
+            setNotifState('granted');
+            toast('🔔 Notifications enabled!');
+          } else {
+            setNotifState('denied');
+          }
+        }
+      } catch(e) {
+        console.error(e);
+        setNotifState('denied');
+      }
+    }
+
+    const states = {
+      idle:    { label: '🔔 Enable notifications', bg: '#1a2e1a', color: 'white', clickable: true },
+      loading: { label: '⏳ Enabling...', bg: '#3a5a3a', color: 'white', clickable: false },
+      granted: { label: '✅ Notifications enabled', bg: '#8aad8a', color: 'white', clickable: false },
+      denied:  { label: '❌ Blocked — enable in browser settings', bg: '#e07070', color: 'white', clickable: false },
+    };
+
+    const s = states[notifState];
+
+    return (
+      <div style={{ marginBottom: 16 }}>
+        <button
+          onClick={s.clickable ? handleEnable : undefined}
+          style={{
+            width: '100%',
+            padding: '13px 20px',
+            background: s.bg,
+            color: s.color,
+            border: 'none',
+            borderRadius: 12,
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: s.clickable ? 'pointer' : 'default',
+            fontFamily: 'DM Sans, sans-serif',
+            transition: 'all 0.3s',
+            textAlign: 'center',
+          }}
+        >
+          {s.label}
+        </button>
+        {notifState === 'granted' && (
+          <p style={{ fontSize: 11, color: '#5a7a5a', marginTop: 6, textAlign: 'center' }}>
+            You&apos;ll receive habit reminders and community updates 🌱
+          </p>
+        )}
+        {notifState === 'denied' && (
+          <p style={{ fontSize: 11, color: '#888', marginTop: 6, textAlign: 'center' }}>
+            To enable: Settings → Safari → your site → Notifications → Allow
+          </p>
+        )}
+      </div>
+    );
+  };
 
   // ── Dashboard quick post (admin only) ─────────────────────
   const DashboardPostCard=()=>{
@@ -411,38 +468,22 @@ export default function Dashboard() {
         })
         .select()
         .single();
-      if (data && !error) {
-        setText('');
-        toast('✅ Posted to community!');
-      }
+      if (data && !error) { setText(''); toast('✅ Posted to community!'); }
       setPosting(false);
     }
 
     return (
       <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20}}>
-        <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>
-          Post to Community
-        </div>
+        <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>Post to Community</div>
         <div style={{display:'flex',gap:10,alignItems:'flex-start'}}>
-          <div style={{width:34,height:34,borderRadius:'50%',background:'#f3f8f3',border:'2px solid #8aad8a',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>
-            {avEmoji||'🌿'}
-          </div>
+          <div style={{width:34,height:34,borderRadius:'50%',background:'#f3f8f3',border:'2px solid #8aad8a',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>{avEmoji||'🌿'}</div>
           <div style={{flex:1}}>
-            <textarea
-              value={text}
-              onChange={e=>setText(e.target.value)}
-              placeholder="Share a tip, recipe, science insight, or encouragement with your cohort..."
-              rows={2}
+            <textarea value={text} onChange={e=>setText(e.target.value)} placeholder="Share a tip, recipe, science insight, or encouragement..." rows={2}
               style={{width:'100%',padding:'10px 13px',border:'1.5px solid #e8e4de',borderRadius:12,fontSize:13,fontFamily:'DM Sans,sans-serif',outline:'none',color:'#2a2a2a',background:'#f7f3ed',resize:'vertical',transition:'border-color 0.2s',lineHeight:1.5}}
-              onFocus={e=>e.target.style.borderColor='#8aad8a'}
-              onBlur={e=>e.target.style.borderColor='#e8e4de'}
-            />
+              onFocus={e=>e.target.style.borderColor='#8aad8a'} onBlur={e=>e.target.style.borderColor='#e8e4de'}/>
             <div style={{display:'flex',justifyContent:'flex-end',marginTop:8}}>
-              <button
-                onClick={submit}
-                disabled={posting||!text.trim()}
-                style={{padding:'8px 18px',background:text.trim()?'#8aad8a':'#e8e4de',color:text.trim()?'white':'#aaa',border:'none',borderRadius:10,fontSize:13,fontWeight:600,cursor:text.trim()?'pointer':'not-allowed',fontFamily:'DM Sans,sans-serif',transition:'all 0.2s'}}
-              >
+              <button onClick={submit} disabled={posting||!text.trim()}
+                style={{padding:'8px 18px',background:text.trim()?'#8aad8a':'#e8e4de',color:text.trim()?'white':'#aaa',border:'none',borderRadius:10,fontSize:13,fontWeight:600,cursor:text.trim()?'pointer':'not-allowed',fontFamily:'DM Sans,sans-serif',transition:'all 0.2s'}}>
                 {posting?'Posting...':'Post →'}
               </button>
             </div>
@@ -452,40 +493,38 @@ export default function Dashboard() {
     );
   };
 
-  const AvatarCard=()=>{
-    return(
-      <div style={{background:'linear-gradient(160deg,#e8f0e8,#f0ede8)',border:'1.5px solid #b5ceb5',borderRadius:20,padding:22,textAlign:'center'}}>
-        <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:16}}>Your Companion</div>
-        <div style={{position:'relative',width:130,height:130,margin:'0 auto 16px'}}>
-          <div style={{width:130,height:130,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:54,border:'3px solid rgba(255,255,255,0.7)',boxShadow:'0 8px 28px rgba(90,122,90,0.18)',animation:'breathe 4s ease-in-out infinite',cursor:'pointer',position:'relative'}}>
-            🧑‍🌿
-            {equipped&&<div style={{position:'absolute',top:-6,right:-2,fontSize:18}}>{SHOP_ITEMS.find(i=>i.key===equipped.item_key)?.icon}</div>}
-          </div>
-          <div style={{position:'absolute',bottom:4,right:4,background:'#d4af6a',color:'white',fontSize:11,fontWeight:700,padding:'3px 8px',borderRadius:8}}>Lv.{level}</div>
+  const AvatarCard=()=>(
+    <div style={{background:'linear-gradient(160deg,#e8f0e8,#f0ede8)',border:'1.5px solid #b5ceb5',borderRadius:20,padding:22,textAlign:'center'}}>
+      <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:16}}>Your Companion</div>
+      <div style={{position:'relative',width:130,height:130,margin:'0 auto 16px'}}>
+        <div style={{width:130,height:130,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:54,border:'3px solid rgba(255,255,255,0.7)',boxShadow:'0 8px 28px rgba(90,122,90,0.18)',animation:'breathe 4s ease-in-out infinite',cursor:'pointer',position:'relative'}}>
+          🧑‍🌿
+          {equipped&&<div style={{position:'absolute',top:-6,right:-2,fontSize:18}}>{SHOP_ITEMS.find(i=>i.key===equipped.item_key)?.icon}</div>}
         </div>
-        <div style={{fontFamily:'Instrument Serif,serif',fontSize:17,marginBottom:2}}>{name}</div>
-        <div style={{fontSize:11,color:'#5a7a5a',marginBottom:3}}>{arch.icon} {arch.name}</div>
-        <div style={{fontSize:11,color:'#888',marginBottom:14}}>{mood}</div>
-        {[{label:'❤️ Health',val:health,fill:'linear-gradient(90deg,#70c070,#4ea84e)'},{label:'📋 Today',val:pct,fill:'linear-gradient(90deg,#8aad8a,#5a7a5a)'}].map(b=>(
-          <div key={b.label} style={{marginBottom:8}}>
-            <div style={{display:'flex',justifyContent:'space-between',fontSize:11,fontWeight:500,marginBottom:3}}><span>{b.label}</span><span>{b.val}%</span></div>
-            <div style={{height:6,background:'#e8d9c4',borderRadius:99,overflow:'hidden'}}><div style={{height:'100%',width:`${b.val}%`,background:b.fill,borderRadius:99,transition:'width 0.8s'}}/></div>
+        <div style={{position:'absolute',bottom:4,right:4,background:'#d4af6a',color:'white',fontSize:11,fontWeight:700,padding:'3px 8px',borderRadius:8}}>Lv.{level}</div>
+      </div>
+      <div style={{fontFamily:'Instrument Serif,serif',fontSize:17,marginBottom:2}}>{name}</div>
+      <div style={{fontSize:11,color:'#5a7a5a',marginBottom:3}}>{arch.icon} {arch.name}</div>
+      <div style={{fontSize:11,color:'#888',marginBottom:14}}>{mood}</div>
+      {[{label:'❤️ Health',val:health,fill:'linear-gradient(90deg,#70c070,#4ea84e)'},{label:'📋 Today',val:pct,fill:'linear-gradient(90deg,#8aad8a,#5a7a5a)'}].map(b=>(
+        <div key={b.label} style={{marginBottom:8}}>
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:11,fontWeight:500,marginBottom:3}}><span>{b.label}</span><span>{b.val}%</span></div>
+          <div style={{height:6,background:'#e8d9c4',borderRadius:99,overflow:'hidden'}}><div style={{height:'100%',width:`${b.val}%`,background:b.fill,borderRadius:99,transition:'width 0.8s'}}/></div>
+        </div>
+      ))}
+      <div style={{display:'flex',gap:8,marginTop:14}}>
+        {[{v:coins.toLocaleString(),l:'🪙 Coins',c:'#d4af6a'},{v:ge,l:'⚡ GE',c:'#38a855'}].map(x=>(
+          <div key={x.l} style={{flex:1,background:'white',border:'1.5px solid #e8e4de',borderRadius:10,padding:'9px 6px',textAlign:'center'}}>
+            <div style={{fontSize:15,fontWeight:700,fontFamily:'Syne,sans-serif',color:x.c}}>{x.v}</div>
+            <div style={{fontSize:10,color:'#888'}}>{x.l}</div>
           </div>
         ))}
-        <div style={{display:'flex',gap:8,marginTop:14}}>
-          {[{v:coins.toLocaleString(),l:'🪙 Coins',c:'#d4af6a'},{v:ge,l:'⚡ GE',c:'#38a855'}].map(x=>(
-            <div key={x.l} style={{flex:1,background:'white',border:'1.5px solid #e8e4de',borderRadius:10,padding:'9px 6px',textAlign:'center'}}>
-              <div style={{fontSize:15,fontWeight:700,fontFamily:'Syne,sans-serif',color:x.c}}>{x.v}</div>
-              <div style={{fontSize:10,color:'#888'}}>{x.l}</div>
-            </div>
-          ))}
-        </div>
-        <div style={{background:'#e8d9c4',border:'1px solid #c4a882',borderRadius:10,padding:'8px 10px',fontSize:10,color:'#7a6040',marginTop:12,textAlign:'left',lineHeight:1.5}}>
-          🔬 Lally et al. (2010): habits form in 18–254 days — consistency is the key variable.
-        </div>
       </div>
-    );
-  };
+      <div style={{background:'#e8d9c4',border:'1px solid #c4a882',borderRadius:10,padding:'8px 10px',fontSize:10,color:'#7a6040',marginTop:12,textAlign:'left',lineHeight:1.5}}>
+        🔬 Lally et al. (2010): habits form in 18–254 days — consistency is the key variable.
+      </div>
+    </div>
+  );
 
   const HabitsGrid=()=>(
     <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:22}}>
@@ -493,10 +532,8 @@ export default function Dashboard() {
         <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888'}}>
           Today&apos;s Habits · Week {week} · {arch.icon} {arch.name}
         </div>
-        <button
-          onClick={()=>setCustomHabitOpen(true)}
-          style={{display:'flex',alignItems:'center',gap:5,padding:'6px 12px',background:'#f3f8f3',border:'1.5px solid #b5ceb5',borderRadius:99,fontSize:12,fontWeight:600,color:'#5a7a5a',cursor:'pointer',fontFamily:'DM Sans,sans-serif',transition:'all 0.2s'}}
-        >
+        <button onClick={()=>setCustomHabitOpen(true)}
+          style={{display:'flex',alignItems:'center',gap:5,padding:'6px 12px',background:'#f3f8f3',border:'1.5px solid #b5ceb5',borderRadius:99,fontSize:12,fontWeight:600,color:'#5a7a5a',cursor:'pointer',fontFamily:'DM Sans,sans-serif',transition:'all 0.2s'}}>
           ＋ Add habit
         </button>
       </div>
@@ -529,23 +566,14 @@ export default function Dashboard() {
 
   const Sidebar=()=>(
     <>
-      {/* Collapsed toggle button — vertically centred, always visible */}
-      <button
-        onClick={()=>setSidebarOpen(o=>!o)}
-        title={sidebarOpen?'Collapse sidebar':'Expand sidebar'}
-        style={{position:'fixed',top:'50%',transform:'translateY(-50%)',left:sidebarOpen?220:0,width:20,height:48,borderRadius:'0 8px 8px 0',background:'#1a2e1a',border:'1.5px solid #2d5a2d',borderLeft:'none',cursor:'pointer',fontSize:11,color:'#7ac47a',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',transition:'left 0.25s ease',boxShadow:'2px 0 8px rgba(0,0,0,0.2)'}}
-      >
+      <button onClick={()=>setSidebarOpen(o=>!o)} title={sidebarOpen?'Collapse':'Expand'}
+        style={{position:'fixed',top:'50%',transform:'translateY(-50%)',left:sidebarOpen?220:0,width:20,height:48,borderRadius:'0 8px 8px 0',background:'#1a2e1a',border:'1.5px solid #2d5a2d',borderLeft:'none',cursor:'pointer',fontSize:11,color:'#7ac47a',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',transition:'left 0.25s ease',boxShadow:'2px 0 8px rgba(0,0,0,0.2)'}}>
         {sidebarOpen?'‹':'›'}
       </button>
-
-      {/* Sidebar panel */}
       <nav style={{position:'fixed',left:0,top:0,bottom:0,width:sidebarOpen?220:0,background:'#1a2e1a',display:'flex',flexDirection:'column',padding:sidebarOpen?'20px 12px 24px':'0',gap:4,zIndex:100,overflow:'hidden',transition:'width 0.25s ease',boxShadow:sidebarOpen?'2px 0 16px rgba(0,0,0,0.15)':'none'}}>
-
         {sidebarOpen && (
           <>
-            {/* Spacer for toggle button */}
             <div style={{height:44,marginBottom:8}}/>
-
             {NAV.map(n=>(
               <button key={n.key} onClick={()=>setTab(n.key)} title={n.label}
                 style={{width:'100%',height:44,borderRadius:12,background:tab===n.key?'#2d5a2d':'transparent',border:'none',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',gap:12,padding:'0 14px',color:tab===n.key?'white':'#6a9a6a',transition:'all 0.2s',position:'relative',fontFamily:'DM Sans,sans-serif',fontWeight:tab===n.key?600:400}}>
@@ -554,14 +582,11 @@ export default function Dashboard() {
                 {n.key==='community'&&<div style={{position:'absolute',top:10,left:26,width:7,height:7,background:'#e07070',borderRadius:'50%',border:'2px solid #1a2e1a'}}/>}
               </button>
             ))}
-
             <div style={{flex:1}}/>
-
             <button onClick={()=>setShopOpen(true)}
               style={{width:'100%',height:44,borderRadius:12,background:'transparent',border:'none',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',gap:12,padding:'0 14px',color:'#6a9a6a',fontFamily:'DM Sans,sans-serif'}}>
               <span style={{fontSize:18}}>🛍</span><span>Shop</span>
             </button>
-
             <button onClick={()=>setTab('settings')}
               style={{width:'100%',height:44,borderRadius:12,background:tab==='settings'?'#2d5a2d':'transparent',border:'none',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',gap:12,padding:'0 14px',color:tab==='settings'?'white':'#6a9a6a',fontFamily:'DM Sans,sans-serif',fontWeight:tab==='settings'?600:400}}>
               <span style={{fontSize:18}}>⚙️</span><span>Settings</span>
@@ -595,8 +620,6 @@ export default function Dashboard() {
     </div>
   );
 
-  // ── TABS ──────────────────────────────────────────────────────────────────
-
   const TabDashboard=()=>{
     const today=new Date();
     const wdays=Array.from({length:7},(_,i)=>{const d=new Date(today);d.setDate(today.getDate()-today.getDay()+i);return{n:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()],num:d.getDate(),today:d.toDateString()===today.toDateString()};});
@@ -614,10 +637,10 @@ export default function Dashboard() {
           <div style={{display:'flex',flexDirection:'column',gap:16}}>
             <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}} className="stats-row">
               {[
-                {icon:'😴',v:manualStats.sleep||'—',l:'Sleep',s:'tap to log',key:'sleep'},
-                {icon:'🧘',v:manualStats.mindfulness?`${manualStats.mindfulness}min`:'—',l:'Mindfulness',s:'tap to log',key:'mindfulness'},
-                {icon:'🚶',v:manualStats.steps?manualStats.steps.toLocaleString():'—',l:'Steps',s:'tap to log',key:'steps'},
-                {icon:'💧',v:manualStats.water?`${manualStats.water}L`:'—',l:'Hydration',s:'tap to log',key:'water'},
+                {icon:'😴',v:manualStats.sleep||'—',l:'Sleep',key:'sleep'},
+                {icon:'🧘',v:manualStats.mindfulness?`${manualStats.mindfulness}min`:'—',l:'Mindfulness',key:'mindfulness'},
+                {icon:'🚶',v:manualStats.steps?manualStats.steps.toLocaleString():'—',l:'Steps',key:'steps'},
+                {icon:'💧',v:manualStats.water?`${manualStats.water}L`:'—',l:'Hydration',key:'water'},
               ].map(x=>(
                 <div key={x.l} onClick={()=>setStatsLogOpen(true)} style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:16,padding:16,cursor:'pointer',transition:'all 0.2s'}}
                   onMouseOver={e=>e.currentTarget.style.borderColor='#8aad8a'}
@@ -625,13 +648,12 @@ export default function Dashboard() {
                   <div style={{fontSize:18,marginBottom:6}}>{x.icon}</div>
                   <div style={{fontFamily:'Syne,sans-serif',fontSize:19,fontWeight:700,color:x.v==='—'?'#ccc':'#1a1a1a'}}>{x.v}</div>
                   <div style={{fontSize:11,color:'#888',marginTop:1}}>{x.l}</div>
-                  <div style={{fontSize:10,color:'#aaa',marginTop:3}}>{x.v==='—'?'tap to log':x.s}</div>
+                  <div style={{fontSize:10,color:'#aaa',marginTop:3}}>{x.v==='—'?'tap to log':'logged'}</div>
                 </div>
               ))}
             </div>
             <HabitsGrid/>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
-              {/* Routines */}
               <div style={{background:'#1a1a16',border:'1.5px solid rgba(255,255,255,0.06)',borderRadius:20,padding:20,color:'white'}}>
                 <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#444438',marginBottom:14}}>Quick Start</div>
                 <div style={{display:'flex',flexDirection:'column',gap:8}}>
@@ -643,7 +665,6 @@ export default function Dashboard() {
                   ))}
                 </div>
               </div>
-              {/* Green Energy */}
               <div style={{background:'linear-gradient(135deg,#1a2e1a,#1c3620)',border:'1.5px solid rgba(78,203,113,0.15)',borderRadius:20,padding:20,color:'white'}}>
                 <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#3a5a3a',marginBottom:14}}>Green Energy</div>
                 <div style={{display:'flex',alignItems:'center',gap:13,marginBottom:12}}>
@@ -653,15 +674,13 @@ export default function Dashboard() {
                 <div style={{display:'flex',flexDirection:'column',gap:5,marginBottom:12}}>
                   {habits.filter(h=>h.ge>0).map(h=>(
                     <div key={h.key} style={{display:'flex',alignItems:'center',gap:7,fontSize:12,color:'#6a9a6a'}}>
-                      <div style={{width:5,height:5,borderRadius:'50%',background:'#4ecb71',flexShrink:0}}/>
-                      {h.name}
+                      <div style={{width:5,height:5,borderRadius:'50%',background:'#4ecb71',flexShrink:0}}/>{h.name}
                     </div>
                   ))}
                 </div>
                 <button onClick={()=>setDonateOpen(true)} style={{width:'100%',padding:10,background:'linear-gradient(135deg,#3a7a4a,#2d6a3d)',border:'none',borderRadius:10,color:'white',fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>🌍 Donate GE to Planet</button>
               </div>
             </div>
-            {/* Week strip */}
             <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20}}>
               <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:12}}>Week at a Glance · Week {week} of 4</div>
               <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:6}}>
@@ -673,11 +692,7 @@ export default function Dashboard() {
                 ))}
               </div>
             </div>
-
-            {/* Community quick post — admin only */}
-            {userId === ADMIN_USER_ID && (
-              <DashboardPostCard/>
-            )}
+            {userId === ADMIN_USER_ID && <DashboardPostCard/>}
           </div>
         </div>
       </div>
@@ -697,7 +712,6 @@ export default function Dashboard() {
     const totalSecs=step?step.duration*60:0;
     const elapsed=totalSecs-rSecs;
     const prog=totalSecs>0?(elapsed/totalSecs)*100:0;
-
     return(
       <div style={{padding:'22px 26px',maxWidth:860}}>
         {!routine?(
@@ -706,20 +720,18 @@ export default function Dashboard() {
             <p style={{fontSize:14,color:'#888',marginBottom:22,lineHeight:1.6}}>Guided step-by-step sessions with a built-in timer. Set your daily frequency target and track completions.</p>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',gap:16}}>
               {Object.entries(ROUTINES).map(([k,r])=>{
-                const todayCount = getTodayRoutineCount(k);
-                const freq = getRoutineFreq(k);
-                const pctDone = Math.min(100, Math.round((todayCount/freq)*100));
-                const allDone = todayCount >= freq;
+                const todayCount=getTodayRoutineCount(k);
+                const freq=getRoutineFreq(k);
+                const pctDone=Math.min(100,Math.round((todayCount/freq)*100));
+                const allDone=todayCount>=freq;
                 return(
                   <div key={k} style={{background:'white',border:`1.5px solid ${allDone?'#8aad8a':'#e8e4de'}`,borderRadius:20,padding:22,transition:'all 0.2s',borderTop:`3px solid ${r.color}`}}>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
                       <div style={{fontSize:28}}>{r.icon}</div>
-                      {allDone && <div style={{fontSize:11,fontWeight:700,color:'#5a7a5a',background:'#f3f8f3',border:'1px solid #b5ceb5',borderRadius:99,padding:'3px 10px'}}>✓ Done today</div>}
+                      {allDone&&<div style={{fontSize:11,fontWeight:700,color:'#5a7a5a',background:'#f3f8f3',border:'1px solid #b5ceb5',borderRadius:99,padding:'3px 10px'}}>✓ Done today</div>}
                     </div>
                     <div style={{fontFamily:'Syne,sans-serif',fontSize:15,fontWeight:700,marginBottom:4}}>{r.label}</div>
                     <div style={{fontSize:13,color:'#888',marginBottom:12}}>{r.steps.reduce((a,s)=>a+s.duration,0)} min · {r.steps.length} steps</div>
-
-                    {/* Daily frequency target */}
                     <div style={{marginBottom:12}}>
                       <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:0.5,color:'#888',marginBottom:6}}>Daily target</div>
                       <div style={{display:'flex',gap:6,alignItems:'center'}}>
@@ -731,8 +743,7 @@ export default function Dashboard() {
                         ))}
                         <div style={{flex:1,marginLeft:4}}>
                           <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'#888',marginBottom:3}}>
-                            <span>Today</span>
-                            <span style={{fontWeight:600,color:allDone?'#5a7a5a':'#888'}}>{todayCount}/{freq}</span>
+                            <span>Today</span><span style={{fontWeight:600,color:allDone?'#5a7a5a':'#888'}}>{todayCount}/{freq}</span>
                           </div>
                           <div style={{height:5,background:'#e8e4de',borderRadius:99,overflow:'hidden'}}>
                             <div style={{height:'100%',width:`${pctDone}%`,background:allDone?'#8aad8a':r.color,borderRadius:99,transition:'width 0.4s'}}/>
@@ -740,7 +751,6 @@ export default function Dashboard() {
                         </div>
                       </div>
                     </div>
-
                     <div style={{display:'flex',flexDirection:'column',gap:4,marginBottom:14}}>
                       {r.steps.map((s,i)=>(
                         <div key={i} style={{display:'flex',alignItems:'center',gap:8,fontSize:12,color:'#555'}}>
@@ -756,32 +766,24 @@ export default function Dashboard() {
                 );
               })}
             </div>
-
-            {/* Completion history */}
-            {Object.keys(routineLog).length > 0 && (
+            {Object.keys(routineLog).length>0&&(
               <div style={{marginTop:24,background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20}}>
                 <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>Recent completions</div>
                 <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                  {Object.entries(routineLog)
-                    .sort((a,b)=>b[0].localeCompare(a[0]))
-                    .slice(0,10)
-                    .map(([k,v])=>{
-                      const parts = k.split('_');
-                      const dateStr = parts[parts.length-1];
-                      const routineKey = parts.slice(0,-1).join('_');
-                      const r = ROUTINES[routineKey];
-                      if(!r) return null;
-                      return(
-                        <div key={k} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',background:'#f7f3ed',borderRadius:12,border:'1px solid #e8e4de'}}>
-                          <span style={{fontSize:20}}>{r.icon}</span>
-                          <div style={{flex:1}}>
-                            <div style={{fontSize:13,fontWeight:500}}>{r.label}</div>
-                            <div style={{fontSize:11,color:'#888'}}>{dateStr}</div>
-                          </div>
-                          <div style={{fontFamily:'Syne,sans-serif',fontSize:13,fontWeight:700,color:'#5a7a5a'}}>{v}x</div>
-                        </div>
-                      );
-                    })}
+                  {Object.entries(routineLog).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,10).map(([k,v])=>{
+                    const parts=k.split('_');
+                    const dateStr=parts[parts.length-1];
+                    const routineKey=parts.slice(0,-1).join('_');
+                    const r=ROUTINES[routineKey];
+                    if(!r) return null;
+                    return(
+                      <div key={k} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',background:'#f7f3ed',borderRadius:12,border:'1px solid #e8e4de'}}>
+                        <span style={{fontSize:20}}>{r.icon}</span>
+                        <div style={{flex:1}}><div style={{fontSize:13,fontWeight:500}}>{r.label}</div><div style={{fontSize:11,color:'#888'}}>{dateStr}</div></div>
+                        <div style={{fontFamily:'Syne,sans-serif',fontSize:13,fontWeight:700,color:'#5a7a5a'}}>{v}x</div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -789,9 +791,7 @@ export default function Dashboard() {
         ):(
           <div>
             <button onClick={()=>{setRoutine(null);clearInterval(rTimer.current);setRRunning(false);}}
-              style={{background:'transparent',border:'none',cursor:'pointer',fontSize:13,color:'#888',marginBottom:20,display:'flex',alignItems:'center',gap:6,fontFamily:'DM Sans,sans-serif'}}>
-              ← Back to routines
-            </button>
+              style={{background:'transparent',border:'none',cursor:'pointer',fontSize:13,color:'#888',marginBottom:20,display:'flex',alignItems:'center',gap:6,fontFamily:'DM Sans,sans-serif'}}>← Back to routines</button>
             <div style={{display:'grid',gridTemplateColumns:'1fr 280px',gap:20,alignItems:'start'}} className="routine-grid">
               <div style={{background:'#1a1a16',borderRadius:24,padding:32,textAlign:'center',color:'white'}}>
                 <div style={{fontSize:11,color:'#444',textTransform:'uppercase',letterSpacing:'1.5px',marginBottom:6}}>{r.label}</div>
@@ -802,16 +802,11 @@ export default function Dashboard() {
                   <div style={{height:'100%',width:`${prog}%`,background:r.color,borderRadius:99,transition:'width 1s linear'}}/>
                 </div>
                 <div style={{display:'flex',gap:10,justifyContent:'center'}}>
-                  <button onClick={toggleTimer}
-                    style={{padding:'11px 26px',background:r.color,color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
+                  <button onClick={toggleTimer} style={{padding:'11px 26px',background:r.color,color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
                     {rRunning?'⏸ Pause':'▶ Start'}
                   </button>
-                  <button onClick={skipStep}
-                    style={{padding:'11px 18px',background:'rgba(255,255,255,0.06)',color:'#888',border:'1px solid rgba(255,255,255,0.1)',borderRadius:12,fontSize:13,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
-                    Skip →
-                  </button>
+                  <button onClick={skipStep} style={{padding:'11px 18px',background:'rgba(255,255,255,0.06)',color:'#888',border:'1px solid rgba(255,255,255,0.1)',borderRadius:12,fontSize:13,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>Skip →</button>
                 </div>
-                {/* Today's count for this routine */}
                 <div style={{marginTop:20,fontSize:12,color:'#444'}}>
                   Completed today: <strong style={{color:'#7ac47a'}}>{getTodayRoutineCount(routine)}x</strong> / {getRoutineFreq(routine)}x target
                 </div>
@@ -840,31 +835,17 @@ export default function Dashboard() {
   const TabPlanner=()=>{
     const today=new Date();
     const todayStr=today.toISOString().split('T')[0];
-    // Build 5 weeks of days starting from Sunday of 2 weeks ago
     const startDate=new Date(today);
     startDate.setDate(today.getDate()-today.getDay()-14);
     const allDays=Array.from({length:35},(_,i)=>{
-      const d=new Date(startDate);
-      d.setDate(startDate.getDate()+i);
+      const d=new Date(startDate); d.setDate(startDate.getDate()+i);
       const ds=d.toISOString().split('T')[0];
-      return{
-        n:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()],
-        num:d.getDate(),
-        mo:d.toLocaleDateString('en-US',{month:'short'}),
-        dateStr:ds,
-        isToday:ds===todayStr,
-        isFuture:d>today,
-        isSelected:ds===selectedDay,
-      };
+      return{n:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()],num:d.getDate(),mo:d.toLocaleDateString('en-US',{month:'short'}),dateStr:ds,isToday:ds===todayStr,isFuture:d>today,isSelected:ds===selectedDay};
     });
-
     return(
       <div style={{padding:'22px 26px',maxWidth:960}}>
         <div style={{fontFamily:'Instrument Serif,serif',fontSize:26,marginBottom:18,color:'#1a1a1a'}}>Monthly Planner</div>
-
         <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:20,alignItems:'start'}} className="planner-grid-layout">
-
-          {/* Calendar */}
           <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20}}>
             <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:5,marginBottom:8}}>
               {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>(
@@ -873,17 +854,8 @@ export default function Dashboard() {
             </div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:5}}>
               {allDays.map((d,i)=>(
-                <div key={i}
-                  onClick={()=>!d.isFuture && loadDayStats(d.dateStr)}
-                  style={{
-                    borderRadius:10,padding:'8px 4px',textAlign:'center',
-                    border:`1.5px solid ${d.isSelected?'#5a7a5a':d.isToday?'#8aad8a':'#e8e4de'}`,
-                    background:d.isSelected?'#1a2e1a':d.isToday?'#f3f8f3':'white',
-                    cursor:d.isFuture?'default':'pointer',
-                    opacity:d.isFuture?0.35:1,
-                    transition:'all 0.15s',
-                  }}
-                >
+                <div key={i} onClick={()=>!d.isFuture&&loadDayStats(d.dateStr)}
+                  style={{borderRadius:10,padding:'8px 4px',textAlign:'center',border:`1.5px solid ${d.isSelected?'#5a7a5a':d.isToday?'#8aad8a':'#e8e4de'}`,background:d.isSelected?'#1a2e1a':d.isToday?'#f3f8f3':'white',cursor:d.isFuture?'default':'pointer',opacity:d.isFuture?0.35:1,transition:'all 0.15s'}}>
                   <div style={{fontSize:9,color:d.isSelected?'#7ac47a':'#bbb'}}>{d.num===1?d.mo:''}</div>
                   <div style={{fontWeight:600,fontSize:13,color:d.isSelected?'white':d.isToday?'#5a7a5a':'#2a2a2a'}}>{d.num}</div>
                 </div>
@@ -891,27 +863,22 @@ export default function Dashboard() {
             </div>
             <div style={{fontSize:11,color:'#aaa',marginTop:12,textAlign:'center'}}>Tap any past day to see your stats</div>
           </div>
-
-          {/* Day stats panel */}
           <div>
-            {!selectedDay && (
+            {!selectedDay&&(
               <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:24,textAlign:'center'}}>
                 <div style={{fontSize:32,marginBottom:12}}>📅</div>
                 <div style={{fontFamily:'Instrument Serif,serif',fontSize:18,color:'#1a1a1a',marginBottom:6}}>Select a day</div>
-                <div style={{fontSize:13,color:'#888',lineHeight:1.5}}>Tap any date on the calendar to see your habit completions and routine activity for that day.</div>
+                <div style={{fontSize:13,color:'#888',lineHeight:1.5}}>Tap any date to see habit completions and routine activity.</div>
               </div>
             )}
-
-            {selectedDay && dayStatsLoading && (
+            {selectedDay&&dayStatsLoading&&(
               <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:24,textAlign:'center'}}>
                 <div style={{fontSize:24,marginBottom:8}}>⏳</div>
                 <div style={{fontSize:13,color:'#888'}}>Loading stats...</div>
               </div>
             )}
-
-            {selectedDay && !dayStatsLoading && dayStats && (
+            {selectedDay&&!dayStatsLoading&&dayStats&&(
               <div style={{display:'flex',flexDirection:'column',gap:12}}>
-                {/* Date header */}
                 <div style={{background:'#1a2e1a',borderRadius:20,padding:20,color:'white'}}>
                   <div style={{fontSize:11,color:'#4a6a4a',textTransform:'uppercase',letterSpacing:1,marginBottom:4}}>
                     {new Date(selectedDay+'T12:00:00').toLocaleDateString('en-US',{weekday:'long'})}
@@ -920,11 +887,7 @@ export default function Dashboard() {
                     {new Date(selectedDay+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric'})}
                   </div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
-                    {[
-                      {v:dayStats.completed.length,l:'Habits done',c:'#7ac47a'},
-                      {v:`+${dayStats.totalCoins}`,l:'Coins earned',c:'#d4af6a'},
-                      {v:`+${dayStats.totalGE}`,l:'GE generated',c:'#4ecb71'},
-                    ].map(s=>(
+                    {[{v:dayStats.completed.length,l:'Habits done',c:'#7ac47a'},{v:`+${dayStats.totalCoins}`,l:'Coins earned',c:'#d4af6a'},{v:`+${dayStats.totalGE}`,l:'GE generated',c:'#4ecb71'}].map(s=>(
                       <div key={s.l} style={{textAlign:'center',background:'rgba(255,255,255,0.06)',borderRadius:10,padding:'10px 6px'}}>
                         <div style={{fontFamily:'Syne,sans-serif',fontSize:18,fontWeight:700,color:s.c}}>{s.v}</div>
                         <div style={{fontSize:10,color:'#4a6a4a',marginTop:3}}>{s.l}</div>
@@ -932,15 +895,11 @@ export default function Dashboard() {
                     ))}
                   </div>
                 </div>
-
-                {/* Completed habits */}
                 <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:18}}>
-                  <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:12}}>
-                    Habits completed ({dayStats.completed.length})
-                  </div>
-                  {dayStats.completed.length === 0 ? (
+                  <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:12}}>Habits completed ({dayStats.completed.length})</div>
+                  {dayStats.completed.length===0?(
                     <div style={{fontSize:13,color:'#bbb',textAlign:'center',padding:'12px 0'}}>No habits recorded</div>
-                  ) : (
+                  ):(
                     <div style={{display:'flex',flexDirection:'column',gap:7}}>
                       {dayStats.completed.map(h=>(
                         <div key={h.key} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 10px',background:'#f3f8f3',borderRadius:10,border:'1px solid #b5ceb5'}}>
@@ -952,28 +911,6 @@ export default function Dashboard() {
                     </div>
                   )}
                 </div>
-
-                {/* Routine completions */}
-                {dayStats.routineDone.length > 0 && (
-                  <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:18}}>
-                    <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:12}}>
-                      Routines completed
-                    </div>
-                    <div style={{display:'flex',flexDirection:'column',gap:7}}>
-                      {dayStats.routineDone.map(r=>{
-                        const rd=ROUTINES[r.key];
-                        if(!rd) return null;
-                        return(
-                          <div key={r.key} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 10px',background:'#f7f3ed',borderRadius:10,border:'1px solid #e8e4de'}}>
-                            <span style={{fontSize:18}}>{rd.icon}</span>
-                            <span style={{flex:1,fontSize:13,fontWeight:500}}>{rd.label}</span>
-                            <span style={{fontFamily:'Syne,sans-serif',fontSize:13,fontWeight:700,color:'#5a7a5a'}}>{r.count}x</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
           </div>
@@ -1011,7 +948,7 @@ export default function Dashboard() {
         </div>
       </div>
       <div style={{background:'#f0fdf4',border:'1.5px solid rgba(78,203,113,0.3)',borderRadius:14,padding:'13px 16px',fontSize:12,color:'#276a3a',lineHeight:1.6}}>
-        🔬 Poore & Nemecek (2018, Science): plant-based food choices reduce individual food emissions by up to 73%.
+        🔬 Poore &amp; Nemecek (2018, Science): plant-based food choices reduce individual food emissions by up to 73%.
       </div>
     </div>
   );
@@ -1023,23 +960,21 @@ export default function Dashboard() {
         <div style={{display:'flex',flexDirection:'column',gap:14}}>
           <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:18}}>
             <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>Your Stats</div>
-            {[{name:`${name}`,av:avEmoji||'🦔',lv:level,c:coins,g:ge,me:true}].map(u=>(
-              <div key={u.name} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:12,background:'#f3f8f3',border:`1px solid #b5ceb5`,marginBottom:8}}>
-                <span style={{fontSize:20}}>{u.av}</span>
-                <div style={{flex:1}}><div style={{fontSize:12,fontWeight:600}}>{u.name}</div><div style={{fontSize:10,color:'#888'}}>Lv.{u.lv} · {arch.icon} {arch.name}</div></div>
-                <div style={{display:'flex',gap:8}}>
-                  <div style={{textAlign:'center'}}><div style={{fontFamily:'Syne,sans-serif',fontSize:12,fontWeight:700}}>{u.c.toLocaleString()}</div><div style={{fontSize:9,color:'#888'}}>🪙</div></div>
-                  <div style={{textAlign:'center'}}><div style={{fontFamily:'Syne,sans-serif',fontSize:12,fontWeight:700}}>{u.g}</div><div style={{fontSize:9,color:'#888'}}>⚡</div></div>
-                </div>
+            <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:12,background:'#f3f8f3',border:'1px solid #b5ceb5',marginBottom:8}}>
+              <span style={{fontSize:20}}>{avEmoji||'🧑‍🌿'}</span>
+              <div style={{flex:1}}><div style={{fontSize:12,fontWeight:600}}>{name}</div><div style={{fontSize:10,color:'#888'}}>Lv.{level} · {arch.icon} {arch.name}</div></div>
+              <div style={{display:'flex',gap:8}}>
+                <div style={{textAlign:'center'}}><div style={{fontFamily:'Syne,sans-serif',fontSize:12,fontWeight:700}}>{coins.toLocaleString()}</div><div style={{fontSize:9,color:'#888'}}>🪙</div></div>
+                <div style={{textAlign:'center'}}><div style={{fontFamily:'Syne,sans-serif',fontSize:12,fontWeight:700}}>{ge}</div><div style={{fontSize:9,color:'#888'}}>⚡</div></div>
               </div>
-            ))}
+            </div>
           </div>
           <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:18}}>
             <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>Community Leaderboard</div>
             <div style={{textAlign:'center',padding:'20px 0'}}>
               <div style={{fontSize:28,marginBottom:10}}>🌱</div>
               <div style={{fontSize:13,fontWeight:500,color:'#2a2a2a',marginBottom:6}}>Leaderboard unlocks with members</div>
-              <div style={{fontSize:12,color:'#aaa',lineHeight:1.5}}>As the cohort grows, GE rankings will appear here. Be the first to set the bar.</div>
+              <div style={{fontSize:12,color:'#aaa',lineHeight:1.5}}>As the cohort grows, GE rankings will appear here.</div>
             </div>
           </div>
         </div>
@@ -1049,8 +984,6 @@ export default function Dashboard() {
 
   const TabSettings=()=>(
     <div style={{padding:'22px 26px',maxWidth:680}}>
-
-      {/* Profile header */}
       <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:24,padding:26,display:'flex',gap:18,alignItems:'center',marginBottom:16,flexWrap:'wrap'}}>
         <div style={{width:64,height:64,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:30,border:'3px solid rgba(255,255,255,0.7)',flexShrink:0}}>🧑‍🌿</div>
         <div style={{flex:1}}>
@@ -1067,7 +1000,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Program progress */}
       <div style={{background:'linear-gradient(135deg,#1a2e1a,#2a3a2a)',borderRadius:20,padding:20,color:'white',marginBottom:16}}>
         <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#3a5a3a',marginBottom:14}}>Program Progress</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
@@ -1081,15 +1013,14 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Account info — read only, no broken actions */}
       <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20,marginBottom:16}}>
         <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>Your Program</div>
         {[
-          {l:'Wellness Archetype', v:`${arch.icon} ${arch.name}`},
-          {l:'Lifestyle Level',    v:lvMap[lvl]||'Building'},
-          {l:'Chronotype',        v:chronotype?chronotype.charAt(0).toUpperCase()+chronotype.slice(1):'Bear'},
-          {l:'Program',           v:'Spring Wellness 2026'},
-          {l:'Access',            v:'Founding Beta · Lifetime'},
+          {l:'Wellness Archetype',v:`${arch.icon} ${arch.name}`},
+          {l:'Lifestyle Level',v:lvMap[lvl]||'Building'},
+          {l:'Chronotype',v:chronotype?chronotype.charAt(0).toUpperCase()+chronotype.slice(1):'Bear'},
+          {l:'Program',v:'Spring Wellness 2026'},
+          {l:'Access',v:'Founding Beta · Lifetime'},
         ].map(r=>(
           <div key={r.l} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:'1px solid #f0ece6'}}>
             <span style={{fontSize:13,color:'#555'}}>{r.l}</span>
@@ -1097,28 +1028,10 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
-      <button
-  onClick={async () => {
-    if (window.OneSignal) {
-      await window.OneSignal.Notifications.requestPermission();
-    }
-  }}
-  style={{
-    marginTop: 12,
-    padding: '10px 20px',
-    background: '#1a2e1a',
-    color: 'white',
-    border: 'none',
-    borderRadius: 12,
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: 'pointer',
-    fontFamily: 'DM Sans, sans-serif'
-  }}
->
-  🔔 Enable notifications
-</button>
-      {/* Coming soon — honest placeholder */}
+
+      {/* Notification button with confirmation */}
+      <NotifButton/>
+
       <div style={{background:'#f7f3ed',border:'1.5px solid #e8e4de',borderRadius:20,padding:20,textAlign:'center'}}>
         <div style={{fontSize:22,marginBottom:10}}>⚙️</div>
         <div style={{fontSize:14,fontWeight:500,color:'#2a2a2a',marginBottom:6}}>More settings coming soon</div>
@@ -1130,11 +1043,9 @@ export default function Dashboard() {
           DM @byjbea with requests →
         </a>
       </div>
-
     </div>
   );
 
-  // ── Modals ─────────────────────────────────────────────────────────────────
   const ShopModal=()=>(
     <div onClick={()=>setShopOpen(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200}}>
       <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:24,padding:26,width:560,maxWidth:'95vw',maxHeight:'82vh',overflowY:'auto'}}>
@@ -1230,7 +1141,6 @@ export default function Dashboard() {
     </div>
   );
 
-  // ── Stats Log Modal ────────────────────────────────────────
   const StatsLogModal=()=>{
     const fields=[
       {key:'sleep',icon:'😴',label:'Sleep',placeholder:'e.g. 7.5',unit:'hrs',type:'number',step:'0.5'},
@@ -1238,23 +1148,15 @@ export default function Dashboard() {
       {key:'steps',icon:'🚶',label:'Steps',placeholder:'e.g. 8000',unit:'steps',type:'number',step:'100'},
       {key:'water',icon:'💧',label:'Water',placeholder:'e.g. 2.0',unit:'litres',type:'number',step:'0.1'},
     ];
-
     function saveStats(){
       const today=new Date().toISOString().split('T')[0];
-      const updated={
-        date:today,
-        sleep:statsForm.sleep?parseFloat(statsForm.sleep):manualStats.sleep,
-        mindfulness:statsForm.mindfulness?parseInt(statsForm.mindfulness):manualStats.mindfulness,
-        steps:statsForm.steps?parseInt(statsForm.steps):manualStats.steps,
-        water:statsForm.water?parseFloat(statsForm.water):manualStats.water,
-      };
+      const updated={date:today,sleep:statsForm.sleep?parseFloat(statsForm.sleep):manualStats.sleep,mindfulness:statsForm.mindfulness?parseInt(statsForm.mindfulness):manualStats.mindfulness,steps:statsForm.steps?parseInt(statsForm.steps):manualStats.steps,water:statsForm.water?parseFloat(statsForm.water):manualStats.water};
       setManualStats(updated);
       localStorage.setItem('bloom-daily-stats',JSON.stringify(updated));
       setStatsForm({sleep:'',mindfulness:'',steps:'',water:''});
       setStatsLogOpen(false);
       toast('✅ Stats saved for today');
     }
-
     return(
       <div onClick={()=>setStatsLogOpen(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200}}>
         <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:24,padding:28,width:420,maxWidth:'95vw'}}>
@@ -1270,31 +1172,21 @@ export default function Dashboard() {
                 <div style={{flex:1}}>
                   <label style={{display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:0.5,color:'#888',marginBottom:5}}>{f.label}</label>
                   <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                    <input
-                      type={f.type}
-                      step={f.step}
-                      value={statsForm[f.key]}
-                      onChange={e=>setStatsForm(p=>({...p,[f.key]:e.target.value}))}
-                      placeholder={manualStats[f.key]?String(manualStats[f.key]):f.placeholder}
+                    <input type={f.type} step={f.step} value={statsForm[f.key]} onChange={e=>setStatsForm(p=>({...p,[f.key]:e.target.value}))} placeholder={manualStats[f.key]?String(manualStats[f.key]):f.placeholder}
                       style={{flex:1,padding:'9px 12px',border:'1.5px solid #e8e4de',borderRadius:10,fontSize:14,fontFamily:'DM Sans,sans-serif',outline:'none',color:'#2a2a2a'}}
-                      onFocus={e=>e.target.style.borderColor='#8aad8a'}
-                      onBlur={e=>e.target.style.borderColor='#e8e4de'}
-                    />
+                      onFocus={e=>e.target.style.borderColor='#8aad8a'} onBlur={e=>e.target.style.borderColor='#e8e4de'}/>
                     <span style={{fontSize:12,color:'#aaa',flexShrink:0}}>{f.unit}</span>
                   </div>
                 </div>
               </div>
             ))}
           </div>
-          <button onClick={saveStats} style={{width:'100%',padding:13,background:'#8aad8a',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
-            Save stats →
-          </button>
+          <button onClick={saveStats} style={{width:'100%',padding:13,background:'#8aad8a',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>Save stats →</button>
         </div>
       </div>
     );
   };
 
-  // ── Render titles ──────────────────────────────────────────
   const titles={
     dashboard:{t:`Good morning, ${name} ✨`,s:`Week ${week} · Day ${day} · ${arch.icon} ${arch.name}`},
     habits:{t:'Habits ✅',s:`${done.length}/${habits.length} complete today`},
@@ -1303,7 +1195,7 @@ export default function Dashboard() {
     planet:{t:'Planet 🌍',s:`${ge} GE generated`},
     community:{t:'Community 👥',s:'Spring Wellness Program cohort'},
     settings:{t:'Profile & Settings ⚙️',s:`${arch.icon} ${arch.name} · ${lvMap[lvl]||'Building'}`},
-    roadmap:{t:'Roadmap 🗺️',s:'Vote for features · suggest ideas · see what\'s coming'},
+    roadmap:{t:'Roadmap 🗺️',s:"Vote for features · suggest ideas · see what's coming"},
   };
   const cur=titles[tab]||titles.dashboard;
 
@@ -1335,18 +1227,8 @@ export default function Dashboard() {
         @keyframes pulseGe{0%,100%{box-shadow:0 0 20px rgba(78,203,113,0.35)}50%{box-shadow:0 0 36px rgba(78,203,113,0.5)}}
         .toast.show{opacity:1!important;transform:translateX(-50%) translateY(0)!important;}
         *{min-width:0;}
-        @media(max-width:1100px){
-          .dash-main-grid{grid-template-columns:1fr!important}
-          .stats-row{grid-template-columns:repeat(2,1fr)!important}
-          .routine-grid{grid-template-columns:1fr!important}
-          .community-grid{grid-template-columns:1fr!important}
-          .settings-grid{grid-template-columns:1fr!important}
-          .planner-grid-layout{grid-template-columns:1fr!important}
-        }
-        @media(max-width:600px){
-          .dash-main-grid{grid-template-columns:1fr!important}
-          #bloom-toast{white-space:normal!important;text-align:center;max-width:80vw}
-        }
+        @media(max-width:1100px){.dash-main-grid{grid-template-columns:1fr!important}.stats-row{grid-template-columns:repeat(2,1fr)!important}.routine-grid{grid-template-columns:1fr!important}.community-grid{grid-template-columns:1fr!important}.planner-grid-layout{grid-template-columns:1fr!important}}
+        @media(max-width:600px){.dash-main-grid{grid-template-columns:1fr!important}#bloom-toast{white-space:normal!important;text-align:center;max-width:80vw}}
       `}</style>
     </div>
   );
