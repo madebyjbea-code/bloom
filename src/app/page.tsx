@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Onboarding from '../components/Onboarding';
 import ProgramReveal from '../components/ProgramReveal';
 import Dashboard from '../components/Dashboard';
+import OneSignalProvider from '../components/OneSignalProvider';
 
 type AppStep = 'loading' | 'onboarding' | 'reveal' | 'dashboard';
 
@@ -23,7 +24,6 @@ export default function Home() {
         if (state.userId && state.archetypeKey) {
           setStep('dashboard');
         } else {
-          // Missing archetypeKey — clear stale data and restart
           localStorage.removeItem('bloom-storage');
           setStep('onboarding');
         }
@@ -39,7 +39,7 @@ export default function Home() {
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f7f3ed' }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🌱</div>
-          <p style={{ fontSize: 14, color: '#888', fontFamily: 'DM Sans, sans-serif' }}>Loading BLOOM...</p>
+          <p style={{ fontSize: 14, color: '#888', fontFamily: 'DM Sans, sans-serif' }}>Loading...</p>
         </div>
       </div>
     );
@@ -53,5 +53,10 @@ export default function Home() {
     return <ProgramReveal onAccept={() => setStep('dashboard')} />;
   }
 
-  return <Dashboard />;
+  return (
+    <>
+      <OneSignalProvider />
+      <Dashboard />
+    </>
+  );
 }
