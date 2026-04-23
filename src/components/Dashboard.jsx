@@ -377,28 +377,35 @@ export default function Dashboard() {
 
     async function handleEnable() {
       setNotifState('loading');
+
+      // Safety timeout — never get stuck on loading
+      const timeout = setTimeout(() => setNotifState('idle'), 8000);
+
       try {
-        if (window.OneSignalDeferred) {
-          window.OneSignalDeferred.push(async function(OneSignal) {
-            const result = await OneSignal.Notifications.requestPermission();
-            if (result) {
-              setNotifState('granted');
-              toast('🔔 Notifications enabled!');
-            } else {
-              setNotifState('denied');
-            }
-          });
-        } else {
-          // Fallback to native browser API
-          const result = await Notification.requestPermission();
-          if (result === 'granted') {
-            setNotifState('granted');
-            toast('🔔 Notifications enabled!');
-          } else {
-            setNotifState('denied');
+        // Use native browser API as primary — resolves reliably on all platforms
+        const permission = await Notification.requestPermission();
+        clearTimeout(timeout);
+
+        if (permission === 'granted') {
+          setNotifState('granted');
+          toast('🔔 Notifications enabled!');
+          // Register with OneSignal in background
+          if (window.OneSignalDeferred) {
+            window.OneSignalDeferred.push(async function(OneSignal) {
+              try {
+                await OneSignal.Notifications.requestPermission();
+                const id = OneSignal.User.PushSubscription.id;
+                if (id && userId) {
+                  await supabase.from('users').update({ onesignal_id: id }).eq('id', userId);
+                }
+              } catch(e) { console.error('OneSignal secondary error:', e); }
+            });
           }
+        } else {
+          setNotifState('denied');
         }
       } catch(e) {
+        clearTimeout(timeout);
         console.error(e);
         setNotifState('denied');
       }
@@ -406,7 +413,7 @@ export default function Dashboard() {
 
     const states = {
       idle:    { label: '🔔 Enable notifications', bg: '#1a2e1a', color: 'white', clickable: true },
-      loading: { label: '⏳ Enabling...', bg: '#3a5a3a', color: 'white', clickable: false },
+      loading: { label: '⏳ Waiting for permission...', bg: '#3a5a3a', color: 'white', clickable: false },
       granted: { label: '✅ Notifications enabled', bg: '#8aad8a', color: 'white', clickable: false },
       denied:  { label: '❌ Blocked — enable in browser settings', bg: '#e07070', color: 'white', clickable: false },
     };
@@ -417,31 +424,18 @@ export default function Dashboard() {
       <div style={{ marginBottom: 16 }}>
         <button
           onClick={s.clickable ? handleEnable : undefined}
-          style={{
-            width: '100%',
-            padding: '13px 20px',
-            background: s.bg,
-            color: s.color,
-            border: 'none',
-            borderRadius: 12,
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: s.clickable ? 'pointer' : 'default',
-            fontFamily: 'DM Sans, sans-serif',
-            transition: 'all 0.3s',
-            textAlign: 'center',
-          }}
+          style={{ width:'100%', padding:'13px 20px', background:s.bg, color:s.color, border:'none', borderRadius:12, fontSize:13, fontWeight:600, cursor:s.clickable?'pointer':'default', fontFamily:'DM Sans, sans-serif', transition:'all 0.3s', textAlign:'center' }}
         >
           {s.label}
         </button>
         {notifState === 'granted' && (
-          <p style={{ fontSize: 11, color: '#5a7a5a', marginTop: 6, textAlign: 'center' }}>
+          <p style={{ fontSize:11, color:'#5a7a5a', marginTop:6, textAlign:'center' }}>
             You&apos;ll receive habit reminders and community updates 🌱
           </p>
         )}
         {notifState === 'denied' && (
-          <p style={{ fontSize: 11, color: '#888', marginTop: 6, textAlign: 'center' }}>
-            To enable: Settings → Safari → your site → Notifications → Allow
+          <p style={{ fontSize:11, color:'#888', marginTop:6, textAlign:'center' }}>
+            iPhone: Settings → Safari → scroll to your site → Notifications → Allow
           </p>
         )}
       </div>
@@ -1043,6 +1037,24 @@ export default function Dashboard() {
           DM @byjbea with requests →
         </a>
       </div>
+
+      {/* Sign out */}
+      <button
+        onClick={()=>{
+          if(window.confirm('Are you sure you want to sign out?')){
+            localStorage.removeItem('bloom-storage');
+            localStorage.removeItem('bloom-daily-stats');
+            localStorage.removeItem('bloom-routine-log');
+            localStorage.removeItem('bloom-routine-freqs');
+            window.location.reload();
+          }
+        }}
+        style={{width:'100%',marginTop:12,padding:'13px',background:'transparent',border:'1.5px solid #e8e4de',borderRadius:12,fontSize:13,fontWeight:600,color:'#888',cursor:'pointer',fontFamily:'DM Sans,sans-serif',transition:'all 0.2s'}}
+        onMouseOver={e=>{e.currentTarget.style.borderColor='#e07070';e.currentTarget.style.color='#e07070';}}
+        onMouseOut={e=>{e.currentTarget.style.borderColor='#e8e4de';e.currentTarget.style.color='#888';}}
+      >
+        Sign out
+      </button>
     </div>
   );
 
