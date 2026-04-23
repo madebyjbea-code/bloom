@@ -7,6 +7,8 @@ import { useStore } from '../lib/store';
 import CommunityFeed from './CommunityFeed';
 import ProgressStats from './ProgressStats';
 import CustomHabitModal from './CustomHabitModal';
+import FeedbackModal from './FeedbackModal';
+import TabRoadmap from './TabRoadmap';
 
 // ─── ROUTINES ────────────────────────────────────────────────────────────────
 const ROUTINES = {
@@ -71,11 +73,12 @@ const NAV = [
   { key: 'planner',   icon: '📅', label: 'Planner' },
   { key: 'planet',    icon: '🌍', label: 'Planet' },
   { key: 'community', icon: '👥', label: 'Community' },
+  { key: 'roadmap',   icon: '🗺️',  label: 'Roadmap' },
 ];
 
 // ── Your admin user ID — paste from Supabase users table ──
 // Same value as in CommunityFeed.jsx
-const ADMIN_USER_ID = '3f5a0efe-6932-4821-b7fa-334a8f0bffc3';
+const ADMIN_USER_ID = 'YOUR_USER_ID_HERE';
 
 function fmt(secs) {
   return `${String(Math.floor(secs/60)).padStart(2,'0')}:${String(secs%60).padStart(2,'0')}`;
@@ -104,6 +107,7 @@ export default function Dashboard() {
   const [avMode, setAvMode]         = useState('pet');
   const [notifs, setNotifs]         = useState({ habits:true, community:true, streaks:true, reflection:false });
   const [customHabitOpen, setCustomHabitOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen]       = useState(false);
   const [statsLogOpen, setStatsLogOpen] = useState(false);
   const [manualStats, setManualStats] = useState(() => {
     try {
@@ -573,6 +577,12 @@ export default function Dashboard() {
         {sub&&<p style={{fontSize:12,color:'#888',marginTop:1}}>{sub}</p>}
       </div>
       <div style={{display:'flex',gap:10,alignItems:'center'}}>
+        <button onClick={()=>setFeedbackOpen(true)}
+          style={{display:'flex',alignItems:'center',gap:6,background:'#f7f3ed',border:'1.5px solid #e8e4de',borderRadius:99,padding:'6px 14px',cursor:'pointer',fontSize:13,fontWeight:500,color:'#888',fontFamily:'DM Sans,sans-serif',transition:'all 0.2s'}}
+          onMouseOver={e=>e.currentTarget.style.borderColor='#8aad8a'}
+          onMouseOut={e=>e.currentTarget.style.borderColor='#e8e4de'}>
+          ⭐ Feedback
+        </button>
         <div onClick={()=>setShopOpen(true)} style={{display:'flex',alignItems:'center',gap:6,background:'#f7f3ed',border:'1.5px solid #e8e4de',borderRadius:99,padding:'6px 14px',cursor:'pointer',fontSize:13,fontWeight:600}}>
           🪙 {coins.toLocaleString()}
         </div>
@@ -1271,6 +1281,7 @@ export default function Dashboard() {
     planet:{t:'Planet 🌍',s:`${ge} GE generated`},
     community:{t:'Community 👥',s:'Spring Wellness Program cohort'},
     settings:{t:'Profile & Settings ⚙️',s:`${arch.icon} ${arch.name} · ${lvMap[lvl]||'Building'}`},
+    roadmap:{t:'Roadmap 🗺️',s:'Vote for features · suggest ideas · see what\'s coming'},
   };
   const cur=titles[tab]||titles.dashboard;
 
@@ -1287,6 +1298,7 @@ export default function Dashboard() {
           {tab==='planet'     && <TabPlanet/>}
           {tab==='community'  && <TabCommunity/>}
           {tab==='settings'   && <TabSettings/>}
+          {tab==='roadmap'    && <TabRoadmap onFeedback={()=>setFeedbackOpen(true)}/>}
         </div>
       </div>
       {shopOpen    && <ShopModal/>}
@@ -1294,6 +1306,7 @@ export default function Dashboard() {
       {reflOpen    && <ReflModal/>}
       {customHabitOpen && <CustomHabitModal onClose={()=>setCustomHabitOpen(false)}/>}
       {statsLogOpen && <StatsLogModal/>}
+      {feedbackOpen && <FeedbackModal onClose={()=>setFeedbackOpen(false)}/>}
       <div id="bloom-toast" className="toast" style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%) translateY(20px)',background:'#1a1a16',color:'white',padding:'12px 20px',borderRadius:99,fontSize:13,fontWeight:500,opacity:0,transition:'all 0.3s',zIndex:300,whiteSpace:'nowrap',pointerEvents:'none'}}/>
       <style>{`
         @keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}
