@@ -127,6 +127,10 @@ export default function Dashboard() {
   const [selectedDay, setSelectedDay] = useState(null);
   const [dayStats, setDayStats]       = useState(null);
   const [dayStatsLoading, setDayStatsLoading] = useState(false);
+  const [streaks, setStreaks]         = useState({}); // { habit_key: { current_streak, longest_streak } }
+  const [removedHabits, setRemovedHabits] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('bloom-removed-habits') || '[]'); } catch { return []; }
+  });
 
   const [routine, setRoutine]   = useState(null);
   const [rStep, setRStep]       = useState(0);
@@ -160,14 +164,28 @@ export default function Dashboard() {
     : { name: archetypeName||'Spring Wellness Program', icon: archetypeIcon||'🌿' };
 
   const lvMap = { foundation:'Foundation', building:'Building', optimization:'Optimisation' };
-  const allHabits = [...habits, ...customHabits];
+  function removeHabit(habitKey){
+    const updated=[...removedHabits, habitKey];
+    setRemovedHabits(updated);
+    localStorage.setItem('bloom-removed-habits', JSON.stringify(updated));
+    toast('↩️ Habit removed — add a custom one instead');
+  }
+
+  function restoreHabit(habitKey){
+    const updated=removedHabits.filter(k=>k!==habitKey);
+    setRemovedHabits(updated);
+    localStorage.setItem('bloom-removed-habits', JSON.stringify(updated));
+    toast('✅ Habit restored');
+  }
+
+  const allHabits = [...habits.filter(h=>!removedHabits.includes(h.key)), ...customHabits];
   const pct = allHabits.length>0 ? Math.round((done.length/allHabits.length)*100) : 0;
   const mood = health>70 ? 'Thriving · Streak bonus 🔥' : health>40 ? 'Building momentum 💪' : 'Needs care 🌱';
   const equipped = inventory.find(i=>i.equipped);
 
   useEffect(()=>{
     checkDailyReset();
-    if(userId){ load(); loadInv(); }
+    if(userId){ load(); loadInv(); loadStreaks(); }
   },[userId]);
 
   async function load() {
@@ -251,6 +269,61 @@ export default function Dashboard() {
     if(data) setInventory(data);
   }
 
+  async function loadStreaks(){
+    if(!userId) return;
+    const {data}=await supabase.from('habit_streaks').select('*').eq('user_id',userId);
+    if(data){
+      const map={};
+      data.forEach(s=>{ map[s.habit_key]=s; });
+      setStreaks(map);
+    }
+  }
+
+  async function updateStreak(habitKey, completing){
+    if(!userId) return;
+    const today=new Date().toISOString().split('T')[0];
+    const yesterday=new Date(Date.now()-86400000).toISOString().split('T')[0];
+    const existing=streaks[habitKey];
+
+    if(completing){
+      let newStreak=1;
+      let longest=existing?.longest_streak||0;
+
+      if(existing?.last_completed===yesterday){
+        // Consecutive day — increment
+        newStreak=(existing.current_streak||0)+1;
+      } else if(existing?.last_completed===today){
+        // Already completed today — don't change
+        return;
+      }
+      // else missed a day — reset to 1
+
+      longest=Math.max(longest, newStreak);
+
+      await supabase.from('habit_streaks').upsert(
+        { user_id:userId, habit_key:habitKey, current_streak:newStreak, longest_streak:longest, last_completed:today },
+        { onConflict:'user_id,habit_key' }
+      );
+      setStreaks(prev=>({...prev,[habitKey]:{...prev[habitKey],current_streak:newStreak,longest_streak:longest,last_completed:today}}));
+
+      // Milestone toasts
+      if(newStreak===7)  toast(`🔥 7-day streak on ${habitKey.replace(/_/g,' ')}! Keep going!`);
+      if(newStreak===14) toast(`⚡ 14-day streak! You're on fire!`);
+      if(newStreak===21) toast(`🌟 21 days — this is now a habit!`);
+      if(newStreak===30) toast(`🏆 30-day streak! Incredible!`);
+    } else {
+      // Unmarking — only reset if last_completed was today
+      if(existing?.last_completed===today){
+        const newStreak=Math.max(0,(existing.current_streak||1)-1);
+        await supabase.from('habit_streaks').upsert(
+          { user_id:userId, habit_key:habitKey, current_streak:newStreak, longest_streak:existing.longest_streak||0, last_completed:newStreak>0?yesterday:null },
+          { onConflict:'user_id,habit_key' }
+        );
+        setStreaks(prev=>({...prev,[habitKey]:{...prev[habitKey],current_streak:newStreak}}));
+      }
+    }
+  }
+
   async function toggleHabit(h){
     const isD=done.includes(h.key);
     toggleH(h.key);
@@ -274,12 +347,14 @@ export default function Dashboard() {
       const nc=coins+h.coins,ng=ge+h.ge,nh=Math.min(100,health+3);
       if(userId) await supabase.from('user_stats').update({coins:nc,green_energy:ng,health:nh}).eq('user_id',userId);
       setStats({coins:nc,greenEnergy:ng,health:nh});
+      await updateStreak(h.key, true);
       toast(`✅ +${h.coins} 🪙${h.ge>0?` +${h.ge} ⚡`:''}`);
     } else {
       if(userId) await supabase.from('habit_completions').delete().eq('user_id',userId).eq('habit_key',h.key).eq('date',today);
       const nc=Math.max(0,coins-h.coins),ng=Math.max(0,ge-h.ge),nh=Math.max(0,health-2);
       if(userId) await supabase.from('user_stats').update({coins:nc,green_energy:ng,health:nh}).eq('user_id',userId);
       setStats({coins:nc,greenEnergy:ng,health:nh});
+      await updateStreak(h.key, false);
       toast('↩️ Habit unmarked');
     }
   }
@@ -534,23 +609,69 @@ export default function Dashboard() {
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(230px,1fr))',gap:10}}>
         {allHabits.map(h=>{
           const d=done.includes(h.key);
+          const streak=streaks[h.key]?.current_streak||0;
+          const longest=streaks[h.key]?.longest_streak||0;
           return(
-            <div key={h.key} onClick={()=>toggleHabit(h)} style={{border:`1.5px solid ${d?'#8aad8a':'#e8e4de'}`,borderLeft:h.ge>0?'3px solid #4ecb71':h.isCustom?`3px solid #d4af6a`:`1.5px solid ${d?'#8aad8a':'#e8e4de'}`,borderRadius:13,padding:13,background:d?'#f3f8f3':'white',cursor:'pointer',transition:'all 0.2s',position:'relative'}}>
+            <div key={h.key} style={{border:`1.5px solid ${d?'#8aad8a':'#e8e4de'}`,borderLeft:h.ge>0?'3px solid #4ecb71':h.isCustom?'3px solid #d4af6a':`1.5px solid ${d?'#8aad8a':'#e8e4de'}`,borderRadius:13,padding:13,background:d?'#f3f8f3':'white',transition:'all 0.2s',position:'relative'}}>
               {h.isCustom&&<div style={{position:'absolute',top:8,right:8,fontSize:9,fontWeight:700,color:'#d4af6a',textTransform:'uppercase',letterSpacing:0.5}}>custom</div>}
-              <div style={{display:'flex',justifyContent:'space-between',marginBottom:7}}>
-                <span style={{fontSize:20}}>{h.emoji}</span>
-                <div style={{width:21,height:21,borderRadius:'50%',border:`2px solid ${d?'#8aad8a':'#e8e4de'}`,background:d?'#8aad8a':'white',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:d?'white':'transparent'}}>✓</div>
+
+              {/* Top row — emoji, streak, check */}
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:7}}>
+                <div style={{display:'flex',alignItems:'center',gap:6}}>
+                  <span style={{fontSize:20,cursor:'pointer'}} onClick={()=>toggleHabit(h)}>{h.emoji}</span>
+                  {streak>0&&(
+                    <div style={{display:'flex',alignItems:'center',gap:3,background:streak>=7?'#fff8e6':streak>=3?'#fff3e0':'#f7f3ed',border:`1px solid ${streak>=7?'#d4af6a':streak>=3?'#e8a43a':'#e8e4de'}`,borderRadius:99,padding:'2px 7px'}}>
+                      <span style={{fontSize:10}}>{streak>=7?'🔥':streak>=3?'⚡':'🌱'}</span>
+                      <span style={{fontSize:10,fontWeight:700,color:streak>=7?'#d4af6a':streak>=3?'#c47a20':'#888'}}>{streak}d</span>
+                    </div>
+                  )}
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:6}}>
+                  {/* Remove button */}
+                  {!h.isCustom&&(
+                    <button
+                      onClick={e=>{e.stopPropagation();if(window.confirm(`Remove "${h.name}" from your plan? You can restore it anytime.`)) removeHabit(h.key);}}
+                      title="Remove from plan"
+                      style={{width:18,height:18,borderRadius:'50%',border:'1px solid #e8e4de',background:'white',cursor:'pointer',fontSize:10,color:'#bbb',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all 0.2s'}}
+                      onMouseOver={e=>{e.currentTarget.style.borderColor='#e07070';e.currentTarget.style.color='#e07070';}}
+                      onMouseOut={e=>{e.currentTarget.style.borderColor='#e8e4de';e.currentTarget.style.color='#bbb';}}
+                    >✕</button>
+                  )}
+                  <div onClick={()=>toggleHabit(h)} style={{width:21,height:21,borderRadius:'50%',border:`2px solid ${d?'#8aad8a':'#e8e4de'}`,background:d?'#8aad8a':'white',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:d?'white':'transparent',cursor:'pointer'}}>✓</div>
+                </div>
               </div>
-              <div style={{fontSize:13,fontWeight:500,marginBottom:5}}>{h.name}</div>
-              <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
-                {h.time&&<span style={{fontSize:10,color:'#888'}}>{h.time}</span>}
-                <span style={{fontSize:10,color:'#d4af6a',fontWeight:600}}>+{h.coins} 🪙</span>
-                {h.ge>0&&<span style={{fontSize:10,color:'#38a855',fontWeight:600}}>+{h.ge} ⚡</span>}
+
+              <div onClick={()=>toggleHabit(h)} style={{cursor:'pointer'}}>
+                <div style={{fontSize:13,fontWeight:500,marginBottom:5}}>{h.name}</div>
+                <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+                  {h.time&&<span style={{fontSize:10,color:'#888'}}>{h.time}</span>}
+                  <span style={{fontSize:10,color:'#d4af6a',fontWeight:600}}>+{h.coins} 🪙</span>
+                  {h.ge>0&&<span style={{fontSize:10,color:'#38a855',fontWeight:600}}>+{h.ge} ⚡</span>}
+                  {longest>0&&<span style={{fontSize:10,color:'#aaa'}}>best: {longest}d</span>}
+                </div>
               </div>
             </div>
           );
         })}
       </div>
+
+      {/* Removed habits — restore section */}
+      {removedHabits.length>0&&(
+        <div style={{marginTop:14,padding:'10px 14px',background:'#fdf8f3',border:'1px solid #e8d9c4',borderRadius:12}}>
+          <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:1,color:'#c4a882',marginBottom:8}}>Removed from your plan</div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+            {habits.filter(h=>removedHabits.includes(h.key)).map(h=>(
+              <button key={h.key} onClick={()=>restoreHabit(h.key)}
+                style={{display:'flex',alignItems:'center',gap:5,padding:'4px 10px',background:'white',border:'1px solid #e8d9c4',borderRadius:99,fontSize:11,color:'#888',cursor:'pointer',fontFamily:'DM Sans,sans-serif',transition:'all 0.2s'}}
+                onMouseOver={e=>e.currentTarget.style.borderColor='#8aad8a'}
+                onMouseOut={e=>e.currentTarget.style.borderColor='#e8d9c4'}>
+                {h.emoji} {h.name} <span style={{color:'#8aad8a',fontWeight:700}}>+ restore</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div style={{marginTop:14,padding:'11px 14px',background:'#f7f3ed',borderRadius:12}}>
         <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:5}}><span>Today&apos;s Progress</span><span style={{fontWeight:600}}>{done.length}/{allHabits.length} complete</span></div>
         <div style={{height:7,background:'#e8e4de',borderRadius:99,overflow:'hidden'}}><div style={{height:'100%',width:`${pct}%`,background:'linear-gradient(90deg,#8aad8a,#5a7a5a)',borderRadius:99,transition:'width 0.5s'}}/></div>
