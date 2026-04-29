@@ -211,8 +211,8 @@ export default function CommunityFeed() {
         ))}
       </div>
 
-      {/* Feed */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 520, overflowY: 'auto' }}>
+      {/* Feed — no fixed height, scrolls naturally with page */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {loading ? (
           <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: 20 }}>Loading community...</p>
         ) : filtered.length === 0 ? (
@@ -238,11 +238,11 @@ export default function CommunityFeed() {
                     )}
                   </div>
                   <div style={{ fontSize: 13, color: '#444', lineHeight: 1.6, marginBottom: 8, wordBreak: 'break-word' }}>{post.content}</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 11, color: '#bbb' }}>{timeAgo(post.created_at)}</span>
                     <button onClick={() => toggleExpand(post.id)}
-                      style={{ fontSize: 11, color: '#8aad8a', fontWeight: 600, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', padding: 0 }}>
-                      💬 {isExpanded ? 'Hide' : `Reply${postComments.length > 0 ? ` (${postComments.length})` : ''}`}
+                      style={{ fontSize: 12, color: '#5a7a5a', fontWeight: 600, background: '#f3f8f3', border: '1px solid #b5ceb5', borderRadius: 99, padding: '4px 12px', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      💬 {isExpanded ? 'Hide replies' : `Reply${postComments.length > 0 ? ` (${postComments.length})` : ''}`}
                     </button>
                   </div>
                 </div>

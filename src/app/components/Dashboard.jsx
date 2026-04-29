@@ -90,6 +90,110 @@ function toast(msg) {
   setTimeout(() => el.classList.remove('show'), 3000);
 }
 
+// ── Extracted modals — OUTSIDE Dashboard to prevent remount on every keystroke ──
+
+function ReflModal({ week, refl, setRefl, submitRefl }) {
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200}}>
+      <div style={{background:'white',borderRadius:24,padding:28,width:520,maxWidth:'95vw',maxHeight:'85vh',overflowY:'auto'}}>
+        <h2 style={{fontFamily:'Instrument Serif,serif',fontSize:26,marginBottom:6}}>Week {week-1} Reflection ✨</h2>
+        <p style={{fontSize:14,color:'#888',marginBottom:20}}>Take a moment before continuing to Week {week}</p>
+        {[
+          {k:'worked',l:'What worked well?',p:'Share what helped...'},
+          {k:'challenging',l:'What was challenging?',p:'What obstacles did you face?'},
+        ].map(f=>(
+          <div key={f.k} style={{marginBottom:14}}>
+            <label style={{display:'block',fontSize:11,fontWeight:600,marginBottom:6,textTransform:'uppercase'}}>{f.l}</label>
+            <textarea
+              value={refl[f.k]}
+              onChange={e=>setRefl(p=>({...p,[f.k]:e.target.value}))}
+              placeholder={f.p}
+              style={{width:'100%',padding:13,borderRadius:12,border:'1.5px solid #e8e4de',fontSize:14,fontFamily:'DM Sans,sans-serif',minHeight:90,resize:'vertical',outline:'none',color:'#2a2a2a',boxSizing:'border-box'}}
+              onFocus={e=>e.target.style.borderColor='#8aad8a'}
+              onBlur={e=>e.target.style.borderColor='#e8e4de'}
+            />
+          </div>
+        ))}
+        <label style={{display:'block',fontSize:11,fontWeight:600,marginBottom:10,textTransform:'uppercase'}}>Energy Level (1–5)</label>
+        <div style={{display:'flex',gap:8,justifyContent:'center',marginBottom:20}}>
+          {[1,2,3,4,5].map(n=>(
+            <button key={n} type="button" onClick={()=>setRefl(p=>({...p,energy:n}))}
+              style={{width:44,height:44,borderRadius:'50%',border:`2px solid ${refl.energy===n?'#8aad8a':'#e8e4de'}`,background:refl.energy===n?'#f3f8f3':'white',cursor:'pointer',fontSize:14,fontWeight:600,color:refl.energy===n?'#8aad8a':'#888'}}>
+              {n}
+            </button>
+          ))}
+        </div>
+        <button onClick={submitRefl} disabled={!refl.worked||!refl.challenging}
+          style={{width:'100%',padding:13,background:!refl.worked||!refl.challenging?'#ccc':'#8aad8a',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
+          Continue to Week {week} →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const STATS_FIELDS = [
+  {key:'sleep',      icon:'😴',label:'Sleep',      placeholder:'e.g. 7.5',  unit:'hrs',   type:'number',step:'0.5'},
+  {key:'mindfulness',icon:'🧘',label:'Mindfulness',placeholder:'e.g. 20',   unit:'min',   type:'number',step:'1'},
+  {key:'steps',      icon:'🚶',label:'Steps',      placeholder:'e.g. 8000', unit:'steps', type:'number',step:'100'},
+  {key:'water',      icon:'💧',label:'Water',      placeholder:'e.g. 2.0',  unit:'litres',type:'number',step:'0.1'},
+];
+
+function StatsLogModal({ statsForm, setStatsForm, manualStats, setManualStats, setStatsLogOpen }) {
+  function saveStats() {
+    const today = new Date().toISOString().split('T')[0];
+    const updated = {
+      date: today,
+      sleep:       statsForm.sleep       ? parseFloat(statsForm.sleep)     : manualStats.sleep,
+      mindfulness: statsForm.mindfulness ? parseInt(statsForm.mindfulness) : manualStats.mindfulness,
+      steps:       statsForm.steps       ? parseInt(statsForm.steps)       : manualStats.steps,
+      water:       statsForm.water       ? parseFloat(statsForm.water)     : manualStats.water,
+    };
+    setManualStats(updated);
+    localStorage.setItem('bloom-daily-stats', JSON.stringify(updated));
+    setStatsForm({sleep:'',mindfulness:'',steps:'',water:''});
+    setStatsLogOpen(false);
+  }
+
+  return (
+    <div onClick={()=>setStatsLogOpen(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:24,padding:28,width:420,maxWidth:'95vw',maxHeight:'90vh',overflowY:'auto'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+          <h2 style={{fontFamily:'Instrument Serif,serif',fontSize:22}}>Log today&apos;s stats</h2>
+          <button onClick={()=>setStatsLogOpen(false)} style={{width:30,height:30,borderRadius:'50%',border:'1.5px solid #e8e4de',background:'transparent',cursor:'pointer',fontSize:15}}>✕</button>
+        </div>
+        <p style={{fontSize:13,color:'#888',marginBottom:20}}>Leave blank to keep today&apos;s existing value</p>
+        <div style={{display:'flex',flexDirection:'column',gap:14,marginBottom:20}}>
+          {STATS_FIELDS.map(f=>(
+            <div key={f.key} style={{display:'flex',alignItems:'center',gap:12}}>
+              <div style={{width:36,height:36,borderRadius:10,background:'#f7f3ed',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>{f.icon}</div>
+              <div style={{flex:1}}>
+                <label style={{display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:0.5,color:'#888',marginBottom:5}}>{f.label}</label>
+                <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <input
+                    type={f.type}
+                    step={f.step}
+                    value={statsForm[f.key]}
+                    onChange={e=>setStatsForm(p=>({...p,[f.key]:e.target.value}))}
+                    placeholder={manualStats[f.key] ? String(manualStats[f.key]) : f.placeholder}
+                    style={{flex:1,padding:'9px 12px',border:'1.5px solid #e8e4de',borderRadius:10,fontSize:16,fontFamily:'DM Sans,sans-serif',outline:'none',color:'#2a2a2a'}}
+                    onFocus={e=>e.target.style.borderColor='#8aad8a'}
+                    onBlur={e=>e.target.style.borderColor='#e8e4de'}
+                  />
+                  <span style={{fontSize:12,color:'#aaa',flexShrink:0}}>{f.unit}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <button onClick={saveStats} style={{width:'100%',padding:13,background:'#8aad8a',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
+          Save stats →
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [tab, setTab]               = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(
@@ -713,7 +817,7 @@ export default function Dashboard() {
   );
 
   const TopBar=({title,sub})=>(
-    <div style={{background:'white',borderBottom:'1px solid #e8e4de',padding:'13px 26px',display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:50,flexWrap:'wrap',gap:10}}>
+    <div style={{background:'white',borderBottom:'1px solid #e8e4de',padding:'13px 26px',paddingTop:'max(13px, calc(13px + env(safe-area-inset-top)))',display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:50,flexWrap:'wrap',gap:10}}>
       <div>
         <h2 style={{fontFamily:'Instrument Serif,serif',fontSize:21,fontWeight:400,color:'#1a1a1a'}}>{title}</h2>
         {sub&&<p style={{fontSize:12,color:'#888',marginTop:1}}>{sub}</p>}
@@ -1250,76 +1354,6 @@ export default function Dashboard() {
     </div>
   );
 
-  const ReflModal=()=>(
-    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200}}>
-      <div style={{background:'white',borderRadius:24,padding:28,width:520,maxWidth:'95vw',maxHeight:'80vh',overflowY:'auto'}}>
-        <h2 style={{fontFamily:'Instrument Serif,serif',fontSize:26,marginBottom:6}}>Week {week-1} Reflection ✨</h2>
-        <p style={{fontSize:14,color:'#888',marginBottom:20}}>Take a moment before continuing to Week {week}</p>
-        {[{k:'worked',l:'What worked well?',p:'Share what helped...'},{k:'challenging',l:'What was challenging?',p:'What obstacles did you face?'}].map(f=>(
-          <div key={f.k} style={{marginBottom:14}}>
-            <label style={{display:'block',fontSize:11,fontWeight:600,marginBottom:6,textTransform:'uppercase'}}>{f.l}</label>
-            <textarea value={refl[f.k]} onChange={e=>setRefl(p=>({...p,[f.k]:e.target.value}))} placeholder={f.p} style={{width:'100%',padding:13,borderRadius:12,border:'1.5px solid #e8e4de',fontSize:14,fontFamily:'DM Sans,sans-serif',minHeight:75,resize:'vertical'}}/>
-          </div>
-        ))}
-        <label style={{display:'block',fontSize:11,fontWeight:600,marginBottom:10,textTransform:'uppercase'}}>Energy Level (1–5)</label>
-        <div style={{display:'flex',gap:8,justifyContent:'center',marginBottom:20}}>
-          {[1,2,3,4,5].map(n=>(
-            <button key={n} type="button" onClick={()=>setRefl(p=>({...p,energy:n}))} style={{width:44,height:44,borderRadius:'50%',border:`2px solid ${refl.energy===n?'#8aad8a':'#e8e4de'}`,background:refl.energy===n?'#f3f8f3':'white',cursor:'pointer',fontSize:14,fontWeight:600,color:refl.energy===n?'#8aad8a':'#888'}}>{n}</button>
-          ))}
-        </div>
-        <button onClick={submitRefl} disabled={!refl.worked||!refl.challenging} style={{width:'100%',padding:13,background:!refl.worked||!refl.challenging?'#ccc':'#8aad8a',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
-          Continue to Week {week} →
-        </button>
-      </div>
-    </div>
-  );
-
-  const StatsLogModal=()=>{
-    const fields=[
-      {key:'sleep',icon:'😴',label:'Sleep',placeholder:'e.g. 7.5',unit:'hrs',type:'number',step:'0.5'},
-      {key:'mindfulness',icon:'🧘',label:'Mindfulness',placeholder:'e.g. 20',unit:'min',type:'number',step:'1'},
-      {key:'steps',icon:'🚶',label:'Steps',placeholder:'e.g. 8000',unit:'steps',type:'number',step:'100'},
-      {key:'water',icon:'💧',label:'Water',placeholder:'e.g. 2.0',unit:'litres',type:'number',step:'0.1'},
-    ];
-    function saveStats(){
-      const today=new Date().toISOString().split('T')[0];
-      const updated={date:today,sleep:statsForm.sleep?parseFloat(statsForm.sleep):manualStats.sleep,mindfulness:statsForm.mindfulness?parseInt(statsForm.mindfulness):manualStats.mindfulness,steps:statsForm.steps?parseInt(statsForm.steps):manualStats.steps,water:statsForm.water?parseFloat(statsForm.water):manualStats.water};
-      setManualStats(updated);
-      localStorage.setItem('bloom-daily-stats',JSON.stringify(updated));
-      setStatsForm({sleep:'',mindfulness:'',steps:'',water:''});
-      setStatsLogOpen(false);
-      toast('✅ Stats saved for today');
-    }
-    return(
-      <div onClick={()=>setStatsLogOpen(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200}}>
-        <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:24,padding:28,width:420,maxWidth:'95vw'}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-            <h2 style={{fontFamily:'Instrument Serif,serif',fontSize:22}}>Log today&apos;s stats</h2>
-            <button onClick={()=>setStatsLogOpen(false)} style={{width:30,height:30,borderRadius:'50%',border:'1.5px solid #e8e4de',background:'transparent',cursor:'pointer',fontSize:15}}>✕</button>
-          </div>
-          <p style={{fontSize:13,color:'#888',marginBottom:20}}>Leave blank to keep today&apos;s existing value</p>
-          <div style={{display:'flex',flexDirection:'column',gap:14,marginBottom:20}}>
-            {fields.map(f=>(
-              <div key={f.key} style={{display:'flex',alignItems:'center',gap:12}}>
-                <div style={{width:36,height:36,borderRadius:10,background:'#f7f3ed',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>{f.icon}</div>
-                <div style={{flex:1}}>
-                  <label style={{display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:0.5,color:'#888',marginBottom:5}}>{f.label}</label>
-                  <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                    <input type={f.type} step={f.step} value={statsForm[f.key]} onChange={e=>setStatsForm(p=>({...p,[f.key]:e.target.value}))} placeholder={manualStats[f.key]?String(manualStats[f.key]):f.placeholder}
-                      style={{flex:1,padding:'9px 12px',border:'1.5px solid #e8e4de',borderRadius:10,fontSize:14,fontFamily:'DM Sans,sans-serif',outline:'none',color:'#2a2a2a'}}
-                      onFocus={e=>e.target.style.borderColor='#8aad8a'} onBlur={e=>e.target.style.borderColor='#e8e4de'}/>
-                    <span style={{fontSize:12,color:'#aaa',flexShrink:0}}>{f.unit}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-          <button onClick={saveStats} style={{width:'100%',padding:13,background:'#8aad8a',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>Save stats →</button>
-        </div>
-      </div>
-    );
-  };
-
   const titles={
     dashboard:{t:`Good morning, ${name} ✨`,s:`Week ${week} · Day ${day} · ${arch.icon} ${arch.name}`},
     habits:{t:'Habits ✅',s:`${done.length}/${habits.length} complete today`},
@@ -1350,9 +1384,9 @@ export default function Dashboard() {
       </div>
       {shopOpen    && <ShopModal/>}
       {donateOpen  && <DonateModal/>}
-      {reflOpen    && <ReflModal/>}
+      {reflOpen    && <ReflModal week={week} refl={refl} setRefl={setRefl} submitRefl={submitRefl}/>}
       {customHabitOpen && <CustomHabitModal onClose={()=>setCustomHabitOpen(false)}/>}
-      {statsLogOpen && <StatsLogModal/>}
+      {statsLogOpen && <StatsLogModal statsForm={statsForm} setStatsForm={setStatsForm} manualStats={manualStats} setManualStats={setManualStats} setStatsLogOpen={setStatsLogOpen}/>}
       {feedbackOpen && <FeedbackModal onClose={()=>setFeedbackOpen(false)}/>}
       <div id="bloom-toast" className="toast" style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%) translateY(20px)',background:'#1a1a16',color:'white',padding:'12px 20px',borderRadius:99,fontSize:13,fontWeight:500,opacity:0,transition:'all 0.3s',zIndex:300,whiteSpace:'nowrap',pointerEvents:'none'}}/>
       <style>{`
@@ -1360,8 +1394,16 @@ export default function Dashboard() {
         @keyframes pulseGe{0%,100%{box-shadow:0 0 20px rgba(78,203,113,0.35)}50%{box-shadow:0 0 36px rgba(78,203,113,0.5)}}
         .toast.show{opacity:1!important;transform:translateX(-50%) translateY(0)!important;}
         *{min-width:0;}
+        /* Safe area for iPhone notch/dynamic island */
+        body { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+        @supports (padding-top: env(safe-area-inset-top)) {
+          .topbar-safe { padding-top: calc(13px + env(safe-area-inset-top)) !important; }
+        }
         @media(max-width:1100px){.dash-main-grid{grid-template-columns:1fr!important}.stats-row{grid-template-columns:repeat(2,1fr)!important}.routine-grid{grid-template-columns:1fr!important}.community-grid{grid-template-columns:1fr!important}.planner-grid-layout{grid-template-columns:1fr!important}}
-        @media(max-width:600px){.dash-main-grid{grid-template-columns:1fr!important}#bloom-toast{white-space:normal!important;text-align:center;max-width:80vw}}
+        @media(max-width:600px){
+          .dash-main-grid{grid-template-columns:1fr!important}
+          #bloom-toast{white-space:normal!important;text-align:center;max-width:80vw}
+        }
       `}</style>
     </div>
   );
