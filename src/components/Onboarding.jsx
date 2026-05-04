@@ -839,7 +839,7 @@ export default function Onboarding({ onComplete }) {
             </form>
 
             <div style={{ textAlign: 'center', marginTop: 18, paddingTop: 18, borderTop: '1px solid #e8e4de' }}>
-              <div style={{ fontSize: 12, color: '#aaa', marginBottom: 8 }}>Don't have a code yet?</div>
+              <div style={{ fontSize: 12, color: '#aaa', marginBottom: 8 }}> Don&apos;t have a code yet?</div>
               <a
                 href="https://byjbea.gumroad.com/l/qdxti"
                 target="_blank"
