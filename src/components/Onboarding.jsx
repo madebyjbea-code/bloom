@@ -204,21 +204,17 @@ const ARCHETYPE_CHRONO = {
 
 // ─── COMPONENT ────────────────────────────────────────────
 export default function Onboarding({ onComplete }) {
-  const [phase, setPhase] = useState('intro'); // intro | signin | quiz | gate | name
+  const [phase, setPhase] = useState('intro'); // intro | signin | quiz | reveal | gate | name
   const [current, setCurrent] = useState(0);
   const [answers, setAnswers] = useState(new Array(QUESTIONS.length).fill(null));
   const [collectedScores, setCollectedScores] = useState({});
+  const [derivedArchetype, setDerivedArchetype] = useState(null); // Store archetype after quiz
   const [name, setName] = useState('');
   const [accessCode, setAccessCode] = useState('');
   const [avatarType, setAvatarType] = useState('pet');
   const [avatarName, setAvatarName] = useState('Fern');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-
-  // Gate state
-  const [gateCode, setGateCode] = useState('');
-  const [gateError, setGateError] = useState('');
-  const [gateLoading, setGateLoading] = useState(false);
 
   const setUser = useStore((s) => s.setUser);
   const setHabits = useStore((s) => s.setHabits);
@@ -264,13 +260,37 @@ export default function Onboarding({ onComplete }) {
 
     setCollectedScores(newScores);
 
-    // Show gate after question 4 (index 3)
-    if (current === 3) {
-      setPhase('gate');
-    } else if (current < QUESTIONS.length - 1) {
+    // Allow full quiz completion
+    if (current < QUESTIONS.length - 1) {
       setCurrent(current + 1);
     } else {
-      setPhase('name');
+      // Quiz complete - calculate archetype and show reveal
+      const s = {
+        chrono: (newScores.chrono || ['bear'])[0],
+        level: (newScores.level || ['building'])[0],
+        energy: (newScores.energy || ['midday'])[0],
+        nutBarrier: (newScores.nutBarrier || ['time'])[0],
+        movTime: (newScores.movTime || ['moderate'])[0],
+        activity: (newScores.activity || ['light'])[0],
+        stress: (newScores.stress || ['mental'])[0],
+        stressMgmt: (newScores.stressMgmt || ['occasional'])[0],
+        morning: (newScores.morning || ['gradual'])[0],
+        goals: newScores.goal || ['energy'],
+        drain: newScores.drain || [],
+      };
+
+      const archetypeKey = deriveArchetype(s);
+      const archetype = ARCHETYPES[archetypeKey];
+      const chronotype = ARCHETYPE_CHRONO[archetypeKey] || s.chrono;
+      
+      setDerivedArchetype({
+        archetypeKey,
+        archetype,
+        chronotype,
+        scores: s,
+      });
+      
+      setPhase('reveal');
     }
   }
 
@@ -352,24 +372,8 @@ export default function Onboarding({ onComplete }) {
         return;
       }
 
-      // Derive archetype from collected scores
-      const s = {
-        chrono: (collectedScores.chrono || ['bear'])[0],
-        level: (collectedScores.level || ['building'])[0],
-        energy: (collectedScores.energy || ['midday'])[0],
-        nutBarrier: (collectedScores.nutBarrier || ['time'])[0],
-        movTime: (collectedScores.movTime || ['moderate'])[0],
-        activity: (collectedScores.activity || ['light'])[0],
-        stress: (collectedScores.stress || ['mental'])[0],
-        stressMgmt: (collectedScores.stressMgmt || ['occasional'])[0],
-        morning: (collectedScores.morning || ['gradual'])[0],
-        goals: collectedScores.goal || ['energy'],
-        drain: collectedScores.drain || [],
-      };
-
-      const archetypeKey = deriveArchetype(s);
-      const archetype = ARCHETYPES[archetypeKey];
-      const chronotype = ARCHETYPE_CHRONO[archetypeKey] || s.chrono;
+      // Use the archetype that was already calculated during quiz
+      const { archetypeKey, archetype, chronotype, scores: s } = derivedArchetype;
 
       const avatarEmojis = { pet: '🦔', 'mini-me': '🧑‍🌿', simple: '📊' };
 
@@ -510,79 +514,6 @@ export default function Onboarding({ onComplete }) {
   }
 
   // ── Gate — validate code mid-quiz ──────────────────────
-  async function handleGate(e) {
-    e.preventDefault();
-    if (!gateCode.trim()) return;
-    setGateLoading(true);
-    setGateError('');
-
-    try {
-      const code = gateCode.trim().toLowerCase();
-
-      // Check if returning user
-      const { data: existing } = await supabase
-        .from('users')
-        .select('*')
-        .eq('access_code', code)
-        .single();
-
-      if (existing) {
-        // Returning user — load account and skip to dashboard
-        const { data: stats } = await supabase
-          .from('user_stats')
-          .select('*')
-          .eq('user_id', existing.id)
-          .single();
-
-        setUser({
-          userId: existing.id,
-          accessCode: existing.access_code,
-          name: existing.name,
-          avatarType: existing.avatar_type,
-          avatarName: existing.avatar_name,
-          avatarEmoji: existing.avatar_emoji,
-          chronotype: existing.chronotype,
-          lifestyleLevel: existing.lifestyle_level,
-          archetypeKey: existing.archetype_key || null,
-          archetypeName: existing.archetype_name || null,
-          archetypeIcon: existing.archetype_icon || null,
-          health: stats?.health ?? 78,
-          coins: stats?.coins ?? 0,
-          greenEnergy: stats?.green_energy ?? 0,
-          level: stats?.level ?? 1,
-        });
-        const src = existing.archetype_key || existing.chronotype || 'steadybuilder';
-        setHabits(getHabitsForUser(src, existing.current_week || 1));
-        onComplete();
-        return;
-      }
-
-      // New user — validate against access_codes table
-      const { data: validCode } = await supabase
-        .from('access_codes')
-        .select('*')
-        .eq('code', code)
-        .eq('redeemed', false)
-        .single();
-
-      if (!validCode) {
-        setGateError('Invalid or already used access code. Check your purchase email.');
-        setGateLoading(false);
-        return;
-      }
-
-      // Valid — save code and continue quiz
-      setAccessCode(code);
-      setCurrent(4); // jump to question 5
-      setPhase('quiz');
-    } catch (err) {
-      console.error(err);
-      setGateError('Something went wrong. Please try again.');
-    } finally {
-      setGateLoading(false);
-    }
-  }
-
   // ── RENDER: SIGN IN ──────────────────────────────────────
   if (phase === 'signin') {
     return (
@@ -656,47 +587,240 @@ export default function Onboarding({ onComplete }) {
     );
   }
 
-  // ── RENDER: GATE ─────────────────────────────────────────
+  // ── RENDER: REVEAL (after quiz, before gate) ────────────
+  if (phase === 'reveal' && derivedArchetype) {
+    const { archetype, archetypeKey, chronotype } = derivedArchetype;
+    
+    // Import program data from ARCHETYPE_PROGRAMS (similar to ProgramReveal)
+    const ARCHETYPE_PROGRAMS = {
+      burnout: {
+        programTitle: 'Rest &',
+        programTitleItalic: 'Rise',
+        programDesc: 'A 4-week nervous system restoration program that prioritises sleep, breathwork, and nourishment before any intensity.',
+        color: '#7a6e9e',
+        pillars: [
+          { icon: '😴', name: 'Sleep Architecture' },
+          { icon: '🫁', name: 'Nervous System Reset' },
+          { icon: '🥗', name: 'Cortisol Nutrition' },
+          { icon: '🚶', name: 'Gentle Movement' },
+          { icon: '📖', name: 'Mindful Anchor' },
+          { icon: '🌱', name: 'Plant Reset' },
+        ],
+      },
+      nightowl: {
+        programTitle: 'Night Bloom',
+        programTitleItalic: 'Spring',
+        programDesc: 'A late-shifted circadian support program. Rather than forcing early mornings, this anchors your rhythm at the right phase.',
+        color: '#5a6e8a',
+        pillars: [
+          { icon: '🌅', name: 'Light Anchor' },
+          { icon: '🏃', name: 'Afternoon Movement' },
+          { icon: '🥗', name: 'Aligned Eating' },
+          { icon: '📵', name: 'Evening Wind-Down' },
+          { icon: '🌱', name: 'Plant Diversity' },
+          { icon: '📝', name: 'Evening Intention' },
+        ],
+      },
+      optimizer: {
+        programTitle: 'Sharpen &',
+        programTitleItalic: 'Flourish',
+        programDesc: 'A 4-week optimisation protocol for someone with established habits who wants to identify and close specific energy gaps.',
+        color: '#5a8a6a',
+        pillars: [
+          { icon: '🌅', name: 'Pre-Dawn Anchor' },
+          { icon: '🥗', name: 'Precision Nutrition' },
+          { icon: '🏋️', name: 'Strength Signal' },
+          { icon: '🧘', name: 'Recovery Protocol' },
+          { icon: '🌿', name: 'Gut Diversity Upgrade' },
+          { icon: '📊', name: 'Weekly Reflection' },
+        ],
+      },
+      scattered: {
+        programTitle: 'Ground &',
+        programTitleItalic: 'Gather',
+        programDesc: 'A 4-week rhythm anchoring program for variable schedules. Built around minimum viable anchors that create consistency.',
+        color: '#8a7a5a',
+        pillars: [
+          { icon: '⏰', name: 'Anchor Points' },
+          { icon: '💧', name: 'Morning Signal' },
+          { icon: '🥗', name: 'Minimum Viable Nutrition' },
+          { icon: '🤸', name: 'Micro Movement' },
+          { icon: '🫁', name: 'Grounding Practice' },
+          { icon: '📖', name: 'Evening Offload' },
+        ],
+      },
+      nurturer: {
+        programTitle: 'Nourish &',
+        programTitleItalic: 'Bloom',
+        programDesc: 'A 4-week program centred on the gut-brain axis and emotional eating patterns. Built to add pleasure and satisfaction.',
+        color: '#8a5a6a',
+        pillars: [
+          { icon: '🧠', name: 'Gut-Brain Axis' },
+          { icon: '🥗', name: 'Pleasure-First Nourishment' },
+          { icon: '🫁', name: 'Pre-Craving Breathwork' },
+          { icon: '😴', name: 'Sleep for Appetite' },
+          { icon: '🍽', name: 'Mindful Eating' },
+          { icon: '🌸', name: 'Self-Compassion' },
+        ],
+      },
+      rebuilder: {
+        programTitle: 'Steady &',
+        programTitleItalic: 'Sustainable',
+        programDesc: 'A low-barrier entry program for those with limited time. Short, achievable habits that build momentum without overwhelm.',
+        color: '#6a8a7a',
+        pillars: [
+          { icon: '🚶', name: '10-Minute Daily Walk' },
+          { icon: '🥗', name: 'One Whole Food Swap' },
+          { icon: '💧', name: 'Hydration Signal' },
+          { icon: '🫁', name: 'Desk Breathing Reset' },
+          { icon: '📖', name: 'Evening Reflection' },
+          { icon: '🌱', name: 'Gentle Plant Increase' },
+        ],
+      },
+      slowstarter: {
+        programTitle: 'Awaken &',
+        programTitleItalic: 'Rise',
+        programDesc: 'A delayed-phase circadian program that works with your natural slow wake pattern instead of fighting it.',
+        color: '#8a7a6e',
+        pillars: [
+          { icon: '☀️', name: 'Morning Light' },
+          { icon: '💧', name: 'Hydration Before Caffeine' },
+          { icon: '🥗', name: 'Protein-Packed Breakfast' },
+          { icon: '🚶', name: 'Movement After Eating' },
+          { icon: '🫁', name: 'Midday Energy Reset' },
+          { icon: '📵', name: 'Screen Sunset' },
+        ],
+      },
+      steadybuilder: {
+        programTitle: 'Build &',
+        programTitleItalic: 'Sustain',
+        programDesc: 'A balanced 4-week program for consistent habit-builders who want structured progression without extremes.',
+        color: '#7a8a6a',
+        pillars: [
+          { icon: '🏃', name: 'Regular Movement' },
+          { icon: '🥗', name: 'Balanced Nutrition' },
+          { icon: '😴', name: 'Sleep Routine' },
+          { icon: '🫁', name: 'Stress Management' },
+          { icon: '🌱', name: 'Plant Diversity' },
+          { icon: '📊', name: 'Progress Tracking' },
+        ],
+      },
+    };
+
+    const program = ARCHETYPE_PROGRAMS[archetypeKey] || ARCHETYPE_PROGRAMS.steadybuilder;
+    
+    const chronoLabels = {
+      lion: '🦁 Lion',
+      bear: '🐻 Bear',
+      wolf: '🐺 Wolf',
+      dolphin: '🐬 Dolphin',
+    };
+
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--cream)', padding: '24px' }}>
+        <div style={{ maxWidth: 700, margin: '0 auto' }}>
+          {/* Header */}
+          <div style={{ textAlign: 'center', marginBottom: 40 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '2px', textTransform: 'uppercase', color: '#8aad8a', marginBottom: 12 }}>
+              Your personalised archetype
+            </div>
+            <div style={{ fontSize: 64, marginBottom: 16 }}>{archetype.icon}</div>
+            <h1 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 'clamp(2rem, 5vw, 2.8rem)', fontWeight: 400, lineHeight: 1.15, color: '#1a1a16', marginBottom: 8 }}>
+              {archetype.name}
+            </h1>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#f3f8f3', border: '1px solid var(--sage-light)', borderRadius: 99, padding: '6px 16px', fontSize: 13, color: 'var(--sage-dark)', fontWeight: 500, marginTop: 8 }}>
+              {chronoLabels[chronotype]} chronotype
+            </div>
+          </div>
+
+          {/* Program preview */}
+          <div style={{ background: 'white', border: '1.5px solid #e8e4de', borderRadius: 20, padding: '28px 24px', marginBottom: 24, borderTop: `4px solid ${program.color}` }}>
+            <h2 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 24, fontWeight: 400, marginBottom: 12, color: '#1a1a16' }}>
+              {program.programTitle}{' '}
+              <em style={{ color: program.color, fontStyle: 'italic' }}>{program.programTitleItalic}</em>
+            </h2>
+            <p style={{ fontSize: 15, color: '#666', lineHeight: 1.7, marginBottom: 20 }}>
+              {program.programDesc}
+            </p>
+
+            <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, color: '#888', marginBottom: 12 }}>
+              Your 6 science-backed pillars
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
+              {program.pillars.map((pillar, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#555' }}>
+                  <span style={{ fontSize: 18 }}>{pillar.icon}</span>
+                  <span style={{ fontWeight: 500 }}>{pillar.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* CTA - proceed to gate */}
+          <button
+            onClick={() => setPhase('gate')}
+            style={{ width: '100%', background: 'var(--sage)', color: 'white', border: 'none', borderRadius: 14, padding: '16px 28px', fontSize: 16, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', marginBottom: 16 }}
+          >
+            Unlock my full program →
+          </button>
+
+          <p style={{ textAlign: 'center', fontSize: 13, color: '#aaa', lineHeight: 1.6 }}>
+            Your archetype and program are ready. Complete registration to access your dashboard, habits, and community.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── RENDER: GATE (paywall after archetype reveal) ───────
   if (phase === 'gate') {
     return (
       <div style={styles.page}>
         <div style={styles.container}>
           <div style={styles.logoBar}>
-            <span style={styles.logo}>well with j bea</span>
+            <span style={styles.logo}>BLOOM</span>
+            <span style={styles.pill}>🌿 Spring Wellness</span>
           </div>
 
-          {/* Progress — frozen at q4 */}
-          <div style={{ marginBottom: 28 }}>
-            <div style={styles.progMeta}>
-              <span>Question 4 of {QUESTIONS.length} complete</span>
-              <span>30%</span>
-            </div>
-            <div style={styles.progBar}>
-              <div style={{ ...styles.progFill, width: '30%' }} />
-            </div>
-          </div>
-
-          {/* Teaser */}
+          {/* Main gate card */}
           <div style={styles.qCard}>
             <div style={{ textAlign: 'center', marginBottom: 24 }}>
-              <div style={{ fontSize: 40, marginBottom: 12 }}>🔮</div>
-              <h2 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 24, fontWeight: 400, color: '#1a1a1a', marginBottom: 8 }}>
-                Your archetype is taking shape
+              <div style={{ fontSize: 48, marginBottom: 12 }}>✨</div>
+              <h2 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 26, fontWeight: 400, color: '#1a1a1a', marginBottom: 8 }}>
+                Your {derivedArchetype?.archetype.name} program is ready
               </h2>
               <p style={{ fontSize: 14, color: '#888', lineHeight: 1.7 }}>
-                9 more questions to reveal your full Wellness Archetype and personalised 4-week program. Enter your access code to continue.
+                Enter your access code to unlock your full 4-week personalised plan and start today.
               </p>
             </div>
 
-            {/* What they get teaser */}
+            {/* Beta pricing callout */}
+            <div style={{ background: 'linear-gradient(135deg, #f3f8f3 0%, #fdf9f0 100%)', border: '2px solid var(--sage-light)', borderRadius: 14, padding: '18px 20px', marginBottom: 22 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <div style={{ background: 'var(--sage)', color: 'white', fontSize: 10, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', padding: '3px 10px', borderRadius: 6 }}>
+                  Beta Founding Member
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--sage-dark)' }}>First 10 users only</div>
+              </div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: '#1a1a16', marginBottom: 4 }}>
+                €10
+                <span style={{ fontSize: 15, fontWeight: 400, color: '#888', marginLeft: 6 }}>lifetime access</span>
+              </div>
+              <div style={{ fontSize: 12, color: '#666', lineHeight: 1.6 }}>
+                One-time payment • No subscription • Full access forever • Priority support
+              </div>
+            </div>
+
+            {/* What's included */}
             <div style={{ background: '#f7f3ed', borderRadius: 14, padding: '16px 18px', marginBottom: 22 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, color: '#888', marginBottom: 12 }}>What unlocks with access</div>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, color: '#888', marginBottom: 12 }}>What you get</div>
               {[
-                '🌿 Your personal Wellness Archetype — one of 8 profiles',
-                '📋 4-week program built around your biology',
+                `${derivedArchetype?.archetype.icon} Your ${derivedArchetype?.archetype.name} 4-week program + lifetime habit tracker access`,
                 '⏱ Guided routines with step-by-step timer',
                 '🔬 Peer-reviewed science behind every habit',
+                '🎮 Gamification - coins, energy, avatar progression',
                 '👥 Private Spring cohort community',
+                '📊 Progress tracking & weekly roadmap',
               ].map(item => (
                 <div key={item} style={{ fontSize: 13, color: '#555', marginBottom: 8, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                   <span style={{ flexShrink: 0 }}>{item.split(' ')[0]}</span>
@@ -705,52 +829,32 @@ export default function Onboarding({ onComplete }) {
               ))}
             </div>
 
-            <form onSubmit={handleGate} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div>
-                <label style={styles.inputLabel}>Access code</label>
-                <input
-                  type="text"
-                  value={gateCode}
-                  onChange={e => setGateCode(e.target.value)}
-                  placeholder="e.g. bloom-spring-007"
-                  autoFocus
-                  style={{ ...styles.input, textAlign: 'center', letterSpacing: '1px' }}
-                  onFocus={e => e.target.style.borderColor = 'var(--sage)'}
-                  onBlur={e => e.target.style.borderColor = '#e8e4de'}
-                />
-              </div>
-
-              {gateError && (
-                <div style={{ background: '#fdf0f0', border: '1px solid #e07070', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#c05050' }}>
-                  {gateError}
-                </div>
-              )}
-
+            <form onSubmit={(e) => { e.preventDefault(); setPhase('name'); }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <button
                 type="submit"
-                disabled={gateLoading || !gateCode.trim()}
-                style={{ ...styles.btnPrimary, opacity: gateLoading || !gateCode.trim() ? 0.6 : 1, cursor: gateLoading || !gateCode.trim() ? 'not-allowed' : 'pointer' }}
+                style={{ ...styles.btnPrimary, background: 'var(--sage)', fontSize: 15 }}
               >
-                {gateLoading ? 'Checking...' : 'Continue my quiz →'}
+                I have an access code →
               </button>
             </form>
 
-            <div style={{ textAlign: 'center', marginTop: 16 }}>
+            <div style={{ textAlign: 'center', marginTop: 18, paddingTop: 18, borderTop: '1px solid #e8e4de' }}>
+              <div style={{ fontSize: 12, color: '#aaa', marginBottom: 8 }}>Don't have a code yet?</div>
               <a
                 href="https://byjbea.gumroad.com/l/qdxti"
                 target="_blank"
                 rel="noreferrer"
-                style={{ fontSize: 13, color: 'var(--sage-dark)', fontWeight: 600, textDecoration: 'none' }}
+                style={{ display: 'inline-block', background: '#1a1a16', color: 'white', padding: '12px 24px', borderRadius: 10, fontSize: 14, fontWeight: 600, textDecoration: 'none', fontFamily: 'DM Sans, sans-serif' }}
               >
-                Don&apos;t have a code? Get access for €10 →
+                Get beta access for €10 →
               </a>
             </div>
 
             <button
-              onClick={() => { setCurrent(3); setPhase('quiz'); }}
-              style={{ background: 'transparent', border: 'none', color: '#bbb', fontSize: 12, cursor: 'pointer', marginTop: 12, width: '100%', textAlign: 'center', fontFamily: 'DM Sans, sans-serif' }}
+              onClick={() => setPhase('reveal')}
+              style={{ background: 'transparent', border: 'none', color: '#bbb', fontSize: 12, cursor: 'pointer', marginTop: 16, width: '100%', textAlign: 'center', fontFamily: 'DM Sans, sans-serif' }}
             >
-              ← Back to quiz
+              ← Back to my archetype
             </button>
           </div>
         </div>
