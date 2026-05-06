@@ -9,6 +9,7 @@ import ProgressStats from './ProgressStats';
 import CustomHabitModal from './CustomHabitModal';
 import FeedbackModal from './FeedbackModal';
 import TabRoadmap from './TabRoadmap';
+import QuizAnalytics from './QuizAnalytics';
 
 const ROUTINES = {
   morning: {
@@ -73,6 +74,7 @@ const NAV = [
   { key: 'planet',    icon: '🌍', label: 'Planet' },
   { key: 'community', icon: '👥', label: 'Community' },
   { key: 'roadmap',   icon: '🗺️',  label: 'Roadmap' },
+  { key: 'analytics', icon: '📊', label: 'Analytics', adminOnly: true },
 ];
 
 // ── Paste your UUID from Supabase → users table → id column ──
@@ -256,6 +258,8 @@ export default function Dashboard() {
   const ge            = useStore(s=>s.greenEnergy);
   const level         = useStore(s=>s.level);
   const habits        = useStore(s=>s.habits);
+  
+  const isAdmin       = userId === ADMIN_USER_ID;
   const done          = useStore(s=>s.completedToday);
   const setStats      = useStore(s=>s.setStats);
   const setHabits     = useStore(s=>s.setHabits);
@@ -793,7 +797,7 @@ export default function Dashboard() {
         {sidebarOpen && (
           <>
             <div style={{height:44,marginBottom:8}}/>
-            {NAV.map(n=>(
+            {NAV.filter(n => !n.adminOnly || isAdmin).map(n=>(
               <button key={n.key} onClick={()=>setTab(n.key)} title={n.label}
                 style={{width:'100%',height:44,borderRadius:12,background:tab===n.key?'#2d5a2d':'transparent',border:'none',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',gap:12,padding:'0 14px',color:tab===n.key?'white':'#6a9a6a',transition:'all 0.2s',position:'relative',fontFamily:'DM Sans,sans-serif',fontWeight:tab===n.key?600:400}}>
                 <span style={{fontSize:18,flexShrink:0}}>{n.icon}</span>
@@ -1380,6 +1384,7 @@ export default function Dashboard() {
           {tab==='community'  && <TabCommunity/>}
           {tab==='settings'   && <TabSettings/>}
           {tab==='roadmap'    && <TabRoadmap onFeedback={()=>setFeedbackOpen(true)}/>}
+          {tab==='analytics'  && isAdmin && <QuizAnalytics/>}
         </div>
       </div>
       {shopOpen    && <ShopModal/>}

@@ -1,9 +1,36 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { getHabitsForUser } from '../lib/springProgram';
 import { useStore } from '../lib/store';
+
+// ─── QUIZ TRACKING ────────────────────────────────────────
+function getOrCreateSessionId() {
+  if (typeof window === 'undefined') return null;
+  let sessionId = sessionStorage.getItem('quiz_session_id');
+  if (!sessionId) {
+    sessionId = crypto.randomUUID();
+    sessionStorage.setItem('quiz_session_id', sessionId);
+  }
+  return sessionId;
+}
+
+async function trackQuizEvent(eventType, metadata = {}) {
+  const sessionId = getOrCreateSessionId();
+  if (!sessionId) return;
+
+  try {
+    await supabase.from('quiz_funnel_events').insert({
+      session_id: sessionId,
+      event_type: eventType,
+      metadata,
+      question_number: metadata.question_number || null,
+    });
+  } catch (err) {
+    console.error('Quiz tracking error:', err);
+  }
+}
 
 // ─── QUIZ DATA ───────────────────────────────────────────
 const QUESTIONS = [
@@ -151,166 +178,63 @@ const QUESTIONS = [
   },
 ];
 
-// ─── TWO-TIER ARCHETYPE ENGINE ───────────────────────────
-// Step 1: Determine chronotype (biological clock)
-function deriveChronotype(s) {
-  return s.chrono; // lion, bear, wolf, or dolphin
+// ─── ARCHETYPE ENGINE ─────────────────────────────────────
+function deriveArchetype(s) {
+  const isBurnedOut =
+    s.drain.includes('sleep') ||
+    s.drain.includes('mood') ||
+    s.stressMgmt === 'none' ||
+    s.stressMgmt === 'distract';
+  const isNightOwl = s.chrono === 'wolf';
+  const isEarlyRiser = s.chrono === 'lion';
+  const isIrregular = s.chrono === 'dolphin';
+  const isOptimiser = s.level === 'optimization';
+  const isFoundation = s.level === 'foundation';
+  const isTimeConstrained = s.movTime === 'minimal' || s.movTime === 'moderate';
+  const isSedentary = s.activity === 'sedentary' || s.activity === 'light';
+  const isEmotionalEater = s.nutBarrier === 'emotional';
+  const isStressHead = s.stress === 'mental' || s.stress === 'emotional';
+  const hasMoodGoal = s.goals.includes('mood');
+
+  if (isBurnedOut && (isStressHead || s.stress === 'emotional')) return 'burnout';
+  if (isNightOwl && isSedentary) return 'nightowl';
+  if (isEarlyRiser && isOptimiser) return 'optimizer';
+  if (isIrregular && isBurnedOut) return 'scattered';
+  if (isEmotionalEater && hasMoodGoal) return 'nurturer';
+  if (isTimeConstrained && isSedentary && isFoundation) return 'rebuilder';
+  if (s.morning === 'slow' || s.morning === 'caffeine') return 'slowstarter';
+  return 'steadybuilder';
 }
 
-// Step 2: Determine wellness profile (lifestyle/behavioral pattern)
-function deriveWellnessProfile(s) {
-  const scores = {
-    burnout: 0,
-    optimizer: 0,
-    nurturer: 0,
-    rebuilder: 0,
-    balanced: 0,
-  };
+const ARCHETYPES = {
+  burnout:      { name: 'The Burnt-Out Rebuilder',   icon: '🌙', chrono: null },
+  nightowl:     { name: 'The Night Bloom',            icon: '🌙', chrono: 'wolf' },
+  optimizer:    { name: 'The Energised Optimizer',    icon: '⚡', chrono: 'lion' },
+  scattered:    { name: 'The Scattered Spark',        icon: '🌀', chrono: 'dolphin' },
+  nurturer:     { name: 'The Nourishment Seeker',     icon: '🌸', chrono: null },
+  rebuilder:    { name: 'The Gentle Rebuilder',       icon: '🌱', chrono: null },
+  slowstarter:  { name: 'The Slow-Start Bloomer',     icon: '☀️', chrono: null },
+  steadybuilder:{ name: 'The Steady Builder',         icon: '🌿', chrono: 'bear' },
+};
 
-  // ── BURNOUT SIGNALS ──
-  if (s.drain.includes('sleep')) scores.burnout += 4;
-  if (s.drain.includes('mood')) scores.burnout += 4;
-  if (s.drain.includes('inertia')) scores.burnout += 3;
-  if (s.stressMgmt === 'none' || s.stressMgmt === 'distract') scores.burnout += 5;
-  if (s.stress === 'emotional') scores.burnout += 3;
-  if (s.stress === 'mental') scores.burnout += 2;
-  if (s.stress === 'gut') scores.burnout += 2;
-  if (s.activity === 'sedentary') scores.burnout += 2;
-
-  // ── OPTIMIZER SIGNALS ──
-  if (s.level === 'optimization') scores.optimizer += 6;
-  if (s.activity === 'active') scores.optimizer += 4;
-  if (s.activity === 'moderate') scores.optimizer += 2;
-  if (s.stressMgmt === 'strong') scores.optimizer += 3;
-  if (s.movTime === 'ample' || s.movTime === 'good') scores.optimizer += 2;
-  if (s.drain.includes('ready')) scores.optimizer += 2; // ready for change
-
-  // ── NURTURER SIGNALS ──
-  if (s.nutBarrier === 'emotional') scores.nurturer += 6;
-  if (s.goals.includes('mood')) scores.nurturer += 3;
-  if (s.stress === 'emotional') scores.nurturer += 3;
-  if (s.drain.includes('mood')) scores.nurturer += 2;
-  if (s.mealStyle === 'daily') scores.nurturer += 1; // enjoys cooking
-
-  // ── REBUILDER SIGNALS ──
-  if (s.level === 'foundation') scores.rebuilder += 5;
-  if (s.movTime === 'minimal') scores.rebuilder += 4;
-  if (s.activity === 'sedentary' || s.activity === 'light') scores.rebuilder += 3;
-  if (s.nutBarrier === 'time') scores.rebuilder += 2;
-  if (s.schedule === 'structured') scores.rebuilder += 1; // 9-5 = time constrained
-
-  // ── BALANCED SIGNALS (default for healthy, consistent people) ──
-  if (s.level === 'building') scores.balanced += 4;
-  if (s.activity === 'moderate') scores.balanced += 2;
-  if (s.stressMgmt === 'occasional') scores.balanced += 2;
-  if (s.movTime === 'moderate' || s.movTime === 'good') scores.balanced += 2;
-  if (s.drain.includes('ready')) scores.balanced += 1;
-
-  // Find highest score
-  let maxScore = 0;
-  let bestProfile = 'balanced'; // fallback
-
-  for (const [profile, score] of Object.entries(scores)) {
-    if (score > maxScore) {
-      maxScore = score;
-      bestProfile = profile;
-    }
-  }
-
-  return bestProfile;
-}
-
-// Step 3: Combine chronotype + profile into archetype metadata
-function buildArchetype(chronotype, profile) {
-  const CHRONOTYPE_DATA = {
-    lion: { name: 'Lion', icon: '🦁', desc: 'Early riser' },
-    bear: { name: 'Bear', icon: '🐻', desc: 'Standard rhythm' },
-    wolf: { name: 'Wolf', icon: '🐺', desc: 'Night owl' },
-    dolphin: { name: 'Dolphin', icon: '🐬', desc: 'Irregular sleeper' },
-  };
-
-  const PROFILE_DATA = {
-    burnout: { 
-      name: 'Burnt-Out Rebuilder', 
-      icon: '🌙',
-      focus: 'Nervous system restoration, sleep, and stress recovery',
-    },
-    optimizer: { 
-      name: 'Energised Optimizer', 
-      icon: '⚡',
-      focus: 'Performance optimization and habit refinement',
-    },
-    nurturer: { 
-      name: 'Nourishment Seeker', 
-      icon: '🌸',
-      focus: 'Gut-brain connection and emotional eating patterns',
-    },
-    rebuilder: { 
-      name: 'Gentle Rebuilder', 
-      icon: '🌱',
-      focus: 'Low-barrier habits for time-constrained beginners',
-    },
-    balanced: { 
-      name: 'Steady Builder', 
-      icon: '🌿',
-      focus: 'Balanced progression across all wellness pillars',
-    },
-  };
-
-  const chrono = CHRONOTYPE_DATA[chronotype];
-  const prof = PROFILE_DATA[profile];
-
-  return {
-    chronotype,
-    chronotypeName: chrono.name,
-    chronotypeIcon: chrono.icon,
-    chronotypeDesc: chrono.desc,
-    
-    profile,
-    profileName: prof.name,
-    profileIcon: prof.icon,
-    profileFocus: prof.focus,
-
-    // Combined display name
-    archetypeName: `${chrono.icon} ${chrono.name} ${prof.icon} ${prof.name}`,
-    archetypeKey: `${chronotype}-${profile}`, // e.g., "wolf-burnout"
-  };
-}
-
-// Legacy mapping for springProgram (until we rebuild programs with two-tier logic)
-const LEGACY_ARCHETYPE_MAP = {
-  'lion-optimizer': 'optimizer',
-  'lion-burnout': 'burnout',
-  'lion-nurturer': 'nurturer',
-  'lion-rebuilder': 'rebuilder',
-  'lion-balanced': 'steadybuilder',
-  
-  'bear-optimizer': 'optimizer',
-  'bear-burnout': 'burnout',
-  'bear-nurturer': 'nurturer',
-  'bear-rebuilder': 'rebuilder',
-  'bear-balanced': 'steadybuilder',
-  
-  'wolf-optimizer': 'nightowl',
-  'wolf-burnout': 'burnout',
-  'wolf-nurturer': 'nurturer',
-  'wolf-rebuilder': 'nightowl',
-  'wolf-balanced': 'nightowl',
-  
-  'dolphin-optimizer': 'scattered',
-  'dolphin-burnout': 'scattered',
-  'dolphin-nurturer': 'nurturer',
-  'dolphin-rebuilder': 'scattered',
-  'dolphin-balanced': 'scattered',
+// Map archetype → closest springProgram chronotype
+const ARCHETYPE_CHRONO = {
+  burnout:       'bear',
+  nightowl:      'wolf',
+  optimizer:     'lion',
+  scattered:     'dolphin',
+  nurturer:      'bear',
+  rebuilder:     'bear',
+  slowstarter:   'bear',
+  steadybuilder: 'bear',
 };
 
 // ─── COMPONENT ────────────────────────────────────────────
 export default function Onboarding({ onComplete }) {
-  const [phase, setPhase] = useState('intro'); // intro | signin | quiz | reveal | gate | name
+  const [phase, setPhase] = useState('intro'); // intro | signin | quiz | gate | name
   const [current, setCurrent] = useState(0);
   const [answers, setAnswers] = useState(new Array(QUESTIONS.length).fill(null));
   const [collectedScores, setCollectedScores] = useState({});
-  const [derivedArchetype, setDerivedArchetype] = useState(null); // Store archetype after quiz
   const [name, setName] = useState('');
   const [accessCode, setAccessCode] = useState('');
   const [avatarType, setAvatarType] = useState('pet');
@@ -318,8 +242,20 @@ export default function Onboarding({ onComplete }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Gate state
+  const [gateCode, setGateCode] = useState('');
+  const [gateError, setGateError] = useState('');
+  const [gateLoading, setGateLoading] = useState(false);
+
   const setUser = useStore((s) => s.setUser);
   const setHabits = useStore((s) => s.setHabits);
+
+  // Track quiz start on mount
+  useEffect(() => {
+    if (phase === 'intro') {
+      trackQuizEvent('quiz_started');
+    }
+  }, []);
 
   const q = QUESTIONS[current];
   const isMulti = q?.type === 'multi';
@@ -362,40 +298,25 @@ export default function Onboarding({ onComplete }) {
 
     setCollectedScores(newScores);
 
-    // Allow full quiz completion
-    if (current < QUESTIONS.length - 1) {
-      setCurrent(current + 1);
-    } else {
-      // Quiz complete - calculate chronotype + profile and show reveal
-      const s = {
-        chrono: (newScores.chrono || ['bear'])[0],
-        level: (newScores.level || ['building'])[0],
-        energy: (newScores.energy || ['midday'])[0],
-        nutBarrier: (newScores.nutBarrier || ['time'])[0],
-        movTime: (newScores.movTime || ['moderate'])[0],
-        activity: (newScores.activity || ['light'])[0],
-        stress: (newScores.stress || ['mental'])[0],
-        stressMgmt: (newScores.stressMgmt || ['occasional'])[0],
-        morning: (newScores.morning || ['gradual'])[0],
-        mealStyle: (newScores.mealStyle || ['simple'])[0],
-        schedule: (newScores.schedule || ['structured'])[0],
-        goals: newScores.goal || ['energy'],
-        drain: newScores.drain || [],
-      };
-
-      // Two-tier derivation
-      const chronotype = deriveChronotype(s);
-      const profile = deriveWellnessProfile(s);
-      const archetype = buildArchetype(chronotype, profile);
-      
-      setDerivedArchetype({
-        chronotype,
-        profile,
-        archetype,
-        scores: s,
+    // Show gate after question 4 (index 3)
+    if (current === 3) {
+      trackQuizEvent('paywall_encountered', { 
+        question_number: 4,
+        reached_question: current + 1 
       });
-      
-      setPhase('reveal');
+      setPhase('gate');
+    } else if (current < QUESTIONS.length - 1) {
+      setCurrent(current + 1);
+      // Track next question view
+      trackQuizEvent('question_viewed', { 
+        question_number: current + 2, // Next question (1-indexed)
+        question_text: QUESTIONS[current + 1]?.text 
+      });
+    } else {
+      trackQuizEvent('quiz_completed', {
+        total_questions: QUESTIONS.length
+      });
+      setPhase('name');
     }
   }
 
@@ -477,11 +398,24 @@ export default function Onboarding({ onComplete }) {
         return;
       }
 
-      // Use the archetype that was already calculated during quiz
-      const { chronotype, profile, archetype, scores: s } = derivedArchetype;
-      
-      // Get legacy archetype key for springProgram compatibility
-      const legacyArchetypeKey = LEGACY_ARCHETYPE_MAP[archetype.archetypeKey] || 'steadybuilder';
+      // Derive archetype from collected scores
+      const s = {
+        chrono: (collectedScores.chrono || ['bear'])[0],
+        level: (collectedScores.level || ['building'])[0],
+        energy: (collectedScores.energy || ['midday'])[0],
+        nutBarrier: (collectedScores.nutBarrier || ['time'])[0],
+        movTime: (collectedScores.movTime || ['moderate'])[0],
+        activity: (collectedScores.activity || ['light'])[0],
+        stress: (collectedScores.stress || ['mental'])[0],
+        stressMgmt: (collectedScores.stressMgmt || ['occasional'])[0],
+        morning: (collectedScores.morning || ['gradual'])[0],
+        goals: collectedScores.goal || ['energy'],
+        drain: collectedScores.drain || [],
+      };
+
+      const archetypeKey = deriveArchetype(s);
+      const archetype = ARCHETYPES[archetypeKey];
+      const chronotype = ARCHETYPE_CHRONO[archetypeKey] || s.chrono;
 
       const avatarEmojis = { pet: '🦔', 'mini-me': '🧑‍🌿', simple: '📊' };
 
@@ -496,9 +430,9 @@ export default function Onboarding({ onComplete }) {
           avatar_emoji: avatarEmojis[avatarType] || '🦔',
           chronotype,
           lifestyle_level: s.level,
-          archetype_key: archetype.archetypeKey, // e.g., "wolf-burnout"
-          archetype_name: archetype.archetypeName, // e.g., "🐺 Wolf 🌙 Burnt-Out Rebuilder"
-          archetype_icon: archetype.profileIcon, // Profile icon
+          archetype_key: archetypeKey,
+          archetype_name: archetype.name,
+          archetype_icon: archetype.icon,
           current_week: 1,
           program_start_date: new Date().toISOString(),
         })
@@ -529,9 +463,9 @@ export default function Onboarding({ onComplete }) {
         avatarEmoji: user.avatar_emoji,
         chronotype,
         lifestyleLevel: s.level,
-        archetypeKey: archetype.archetypeKey,
-        archetypeName: archetype.archetypeName,
-        archetypeIcon: archetype.profileIcon,
+        archetypeKey,
+        archetypeName: archetype.name,
+        archetypeIcon: archetype.icon,
         health: stats?.health ?? 78,
         coins: stats?.coins ?? 0,
         greenEnergy: stats?.green_energy ?? 0,
@@ -543,11 +477,11 @@ export default function Onboarding({ onComplete }) {
         user_id: user.id,
         user_name: user.name,
         user_avatar_emoji: user.avatar_emoji,
-        content: `Just joined the Spring Wellness Program as ${archetype.chronotypeIcon} ${archetype.chronotypeName} with ${archetype.profileIcon} ${archetype.profileName} profile! Let's bloom 🌱`,
+        content: `Just joined the Spring Wellness Program as ${archetype.icon} ${archetype.name}! Let's bloom 🌱`,
         post_type: 'milestone',
       });
 
-      const habits = getHabitsForUser(legacyArchetypeKey, 1);
+      const habits = getHabitsForUser(chronotype, 1);
       setHabits(habits);
       onComplete();
     } catch (err) {
@@ -622,6 +556,83 @@ export default function Onboarding({ onComplete }) {
   }
 
   // ── Gate — validate code mid-quiz ──────────────────────
+  async function handleGate(e) {
+    e.preventDefault();
+    if (!gateCode.trim()) return;
+    setGateLoading(true);
+    setGateError('');
+
+    try {
+      const code = gateCode.trim().toLowerCase();
+
+      // Check if returning user
+      const { data: existing } = await supabase
+        .from('users')
+        .select('*')
+        .eq('access_code', code)
+        .single();
+
+      if (existing) {
+        // Returning user — load account and skip to dashboard
+        const { data: stats } = await supabase
+          .from('user_stats')
+          .select('*')
+          .eq('user_id', existing.id)
+          .single();
+
+        setUser({
+          userId: existing.id,
+          accessCode: existing.access_code,
+          name: existing.name,
+          avatarType: existing.avatar_type,
+          avatarName: existing.avatar_name,
+          avatarEmoji: existing.avatar_emoji,
+          chronotype: existing.chronotype,
+          lifestyleLevel: existing.lifestyle_level,
+          archetypeKey: existing.archetype_key || null,
+          archetypeName: existing.archetype_name || null,
+          archetypeIcon: existing.archetype_icon || null,
+          health: stats?.health ?? 78,
+          coins: stats?.coins ?? 0,
+          greenEnergy: stats?.green_energy ?? 0,
+          level: stats?.level ?? 1,
+        });
+        const src = existing.archetype_key || existing.chronotype || 'steadybuilder';
+        setHabits(getHabitsForUser(src, existing.current_week || 1));
+        onComplete();
+        return;
+      }
+
+      // New user — validate against access_codes table
+      const { data: validCode } = await supabase
+        .from('access_codes')
+        .select('*')
+        .eq('code', code)
+        .eq('redeemed', false)
+        .single();
+
+      if (!validCode) {
+        setGateError('Invalid or already used access code. Check your purchase email.');
+        setGateLoading(false);
+        return;
+      }
+
+      // Valid — save code and continue quiz
+      setAccessCode(code);
+      trackQuizEvent('paywall_conversion', {
+        code_used: code,
+        question_stopped_at: 4
+      });
+      setCurrent(4); // jump to question 5
+      setPhase('quiz');
+    } catch (err) {
+      console.error(err);
+      setGateError('Something went wrong. Please try again.');
+    } finally {
+      setGateLoading(false);
+    }
+  }
+
   // ── RENDER: SIGN IN ──────────────────────────────────────
   if (phase === 'signin') {
     return (
@@ -695,244 +706,47 @@ export default function Onboarding({ onComplete }) {
     );
   }
 
-  // ── RENDER: REVEAL (after quiz, before gate) ────────────
-  if (phase === 'reveal' && derivedArchetype) {
-    const { archetype, chronotype, profile } = derivedArchetype;
-    
-    // Get legacy program for display (until we rebuild programs)
-    const legacyKey = LEGACY_ARCHETYPE_MAP[archetype.archetypeKey] || 'steadybuilder';
-    
-    // Import program data from ARCHETYPE_PROGRAMS (similar to ProgramReveal)
-    const ARCHETYPE_PROGRAMS = {
-      burnout: {
-        programTitle: 'Rest &',
-        programTitleItalic: 'Rise',
-        programDesc: 'A 4-week nervous system restoration program that prioritises sleep, breathwork, and nourishment before any intensity.',
-        color: '#7a6e9e',
-        pillars: [
-          { icon: '😴', name: 'Sleep Architecture' },
-          { icon: '🫁', name: 'Nervous System Reset' },
-          { icon: '🥗', name: 'Cortisol Nutrition' },
-          { icon: '🚶', name: 'Gentle Movement' },
-          { icon: '📖', name: 'Mindful Anchor' },
-          { icon: '🌱', name: 'Plant Reset' },
-        ],
-      },
-      nightowl: {
-        programTitle: 'Night Bloom',
-        programTitleItalic: 'Spring',
-        programDesc: 'A late-shifted circadian support program. Rather than forcing early mornings, this anchors your rhythm at the right phase.',
-        color: '#5a6e8a',
-        pillars: [
-          { icon: '🌅', name: 'Light Anchor' },
-          { icon: '🏃', name: 'Afternoon Movement' },
-          { icon: '🥗', name: 'Aligned Eating' },
-          { icon: '📵', name: 'Evening Wind-Down' },
-          { icon: '🌱', name: 'Plant Diversity' },
-          { icon: '📝', name: 'Evening Intention' },
-        ],
-      },
-      optimizer: {
-        programTitle: 'Sharpen &',
-        programTitleItalic: 'Flourish',
-        programDesc: 'A 4-week optimisation protocol for someone with established habits who wants to identify and close specific energy gaps.',
-        color: '#5a8a6a',
-        pillars: [
-          { icon: '🌅', name: 'Pre-Dawn Anchor' },
-          { icon: '🥗', name: 'Precision Nutrition' },
-          { icon: '🏋️', name: 'Strength Signal' },
-          { icon: '🧘', name: 'Recovery Protocol' },
-          { icon: '🌿', name: 'Gut Diversity Upgrade' },
-          { icon: '📊', name: 'Weekly Reflection' },
-        ],
-      },
-      scattered: {
-        programTitle: 'Ground &',
-        programTitleItalic: 'Gather',
-        programDesc: 'A 4-week rhythm anchoring program for variable schedules. Built around minimum viable anchors that create consistency.',
-        color: '#8a7a5a',
-        pillars: [
-          { icon: '⏰', name: 'Anchor Points' },
-          { icon: '💧', name: 'Morning Signal' },
-          { icon: '🥗', name: 'Minimum Viable Nutrition' },
-          { icon: '🤸', name: 'Micro Movement' },
-          { icon: '🫁', name: 'Grounding Practice' },
-          { icon: '📖', name: 'Evening Offload' },
-        ],
-      },
-      nurturer: {
-        programTitle: 'Nourish &',
-        programTitleItalic: 'Bloom',
-        programDesc: 'A 4-week program centred on the gut-brain axis and emotional eating patterns. Built to add pleasure and satisfaction.',
-        color: '#8a5a6a',
-        pillars: [
-          { icon: '🧠', name: 'Gut-Brain Axis' },
-          { icon: '🥗', name: 'Pleasure-First Nourishment' },
-          { icon: '🫁', name: 'Pre-Craving Breathwork' },
-          { icon: '😴', name: 'Sleep for Appetite' },
-          { icon: '🍽', name: 'Mindful Eating' },
-          { icon: '🌸', name: 'Self-Compassion' },
-        ],
-      },
-      rebuilder: {
-        programTitle: 'Steady &',
-        programTitleItalic: 'Sustainable',
-        programDesc: 'A low-barrier entry program for those with limited time. Short, achievable habits that build momentum without overwhelm.',
-        color: '#6a8a7a',
-        pillars: [
-          { icon: '🚶', name: '10-Minute Daily Walk' },
-          { icon: '🥗', name: 'One Whole Food Swap' },
-          { icon: '💧', name: 'Hydration Signal' },
-          { icon: '🫁', name: 'Desk Breathing Reset' },
-          { icon: '📖', name: 'Evening Reflection' },
-          { icon: '🌱', name: 'Gentle Plant Increase' },
-        ],
-      },
-      steadybuilder: {
-        programTitle: 'Build &',
-        programTitleItalic: 'Sustain',
-        programDesc: 'A balanced 4-week program for consistent habit-builders who want structured progression without extremes.',
-        color: '#7a8a6a',
-        pillars: [
-          { icon: '🏃', name: 'Regular Movement' },
-          { icon: '🥗', name: 'Balanced Nutrition' },
-          { icon: '😴', name: 'Sleep Routine' },
-          { icon: '🫁', name: 'Stress Management' },
-          { icon: '🌱', name: 'Plant Diversity' },
-          { icon: '📊', name: 'Progress Tracking' },
-        ],
-      },
-    };
-
-    const program = ARCHETYPE_PROGRAMS[legacyKey] || ARCHETYPE_PROGRAMS.steadybuilder;
-
-    return (
-      <div style={{ minHeight: '100vh', background: 'var(--cream)', padding: '24px' }}>
-        <div style={{ maxWidth: 700, margin: '0 auto' }}>
-          {/* Header - Two-tier display */}
-          <div style={{ textAlign: 'center', marginBottom: 40 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '2px', textTransform: 'uppercase', color: '#8aad8a', marginBottom: 12 }}>
-              Your personalised wellness profile
-            </div>
-            
-            {/* Chronotype badge */}
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#f7f3ed', border: '2px solid #e8e4de', borderRadius: 16, padding: '10px 20px', marginBottom: 16 }}>
-              <span style={{ fontSize: 32 }}>{archetype.chronotypeIcon}</span>
-              <div style={{ textAlign: 'left' }}>
-                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, color: '#aaa' }}>Chronotype</div>
-                <div style={{ fontSize: 16, fontWeight: 600, color: '#2a2a2a' }}>{archetype.chronotypeName}</div>
-                <div style={{ fontSize: 11, color: '#888' }}>{archetype.chronotypeDesc}</div>
-              </div>
-            </div>
-
-            {/* Profile (main archetype) */}
-            <div style={{ fontSize: 64, marginBottom: 12 }}>{archetype.profileIcon}</div>
-            <h1 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 'clamp(2rem, 5vw, 2.8rem)', fontWeight: 400, lineHeight: 1.15, color: '#1a1a16', marginBottom: 8 }}>
-              {archetype.profileName}
-            </h1>
-            <p style={{ fontSize: 14, color: '#888', lineHeight: 1.6, maxWidth: 500, margin: '0 auto' }}>
-              {archetype.profileFocus}
-            </p>
-          </div>
-
-          {/* Program preview */}
-          <div style={{ background: 'white', border: '1.5px solid #e8e4de', borderRadius: 20, padding: '28px 24px', marginBottom: 24, borderTop: `4px solid ${program.color}` }}>
-            <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1.5, color: '#aaa', marginBottom: 8 }}>
-              Your program
-            </div>
-            <h2 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 24, fontWeight: 400, marginBottom: 12, color: '#1a1a16' }}>
-              {program.programTitle}{' '}
-              <em style={{ color: program.color, fontStyle: 'italic' }}>{program.programTitleItalic}</em>
-            </h2>
-            <p style={{ fontSize: 15, color: '#666', lineHeight: 1.7, marginBottom: 20 }}>
-              {program.programDesc}
-            </p>
-
-            <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, color: '#888', marginBottom: 12 }}>
-              Your 6 science-backed pillars
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
-              {program.pillars.map((pillar, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#555' }}>
-                  <span style={{ fontSize: 18 }}>{pillar.icon}</span>
-                  <span style={{ fontWeight: 500 }}>{pillar.name}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Two-tier explanation */}
-          <div style={{ background: '#f7f3ed', border: '1px solid #e8e4de', borderRadius: 14, padding: '16px 20px', marginBottom: 24 }}>
-            <div style={{ fontSize: 12, color: '#666', lineHeight: 1.7 }}>
-              <strong style={{ color: '#2a2a2a' }}>Why two parts?</strong> Your {archetype.chronotypeIcon} {archetype.chronotypeName} chronotype determines <em>when</em> you do habits (timing, energy peaks). Your {archetype.profileIcon} {archetype.profileName} profile determines <em>what</em> habits you need (focus areas, recovery vs. optimization).
-            </div>
-          </div>
-
-          {/* CTA - proceed to gate */}
-          <button
-            onClick={() => setPhase('gate')}
-            style={{ width: '100%', background: 'var(--sage)', color: 'white', border: 'none', borderRadius: 14, padding: '16px 28px', fontSize: 16, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', marginBottom: 16 }}
-          >
-            Unlock my full program →
-          </button>
-
-          <p style={{ textAlign: 'center', fontSize: 13, color: '#aaa', lineHeight: 1.6 }}>
-            Your {archetype.chronotypeName} × {archetype.profileName} program is ready. Complete registration to start.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // ── RENDER: GATE (paywall after archetype reveal) ───────
+  // ── RENDER: GATE ─────────────────────────────────────────
   if (phase === 'gate') {
     return (
       <div style={styles.page}>
         <div style={styles.container}>
           <div style={styles.logoBar}>
-            <span style={styles.logo}>BLOOM</span>
-            <span style={styles.pill}>🌿 Spring Wellness</span>
+            <span style={styles.logo}>well with j bea</span>
           </div>
 
-          {/* Main gate card */}
+          {/* Progress — frozen at q4 */}
+          <div style={{ marginBottom: 28 }}>
+            <div style={styles.progMeta}>
+              <span>Question 4 of {QUESTIONS.length} complete</span>
+              <span>30%</span>
+            </div>
+            <div style={styles.progBar}>
+              <div style={{ ...styles.progFill, width: '30%' }} />
+            </div>
+          </div>
+
+          {/* Teaser */}
           <div style={styles.qCard}>
             <div style={{ textAlign: 'center', marginBottom: 24 }}>
-              <div style={{ fontSize: 48, marginBottom: 12 }}>✨</div>
-              <h2 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 26, fontWeight: 400, color: '#1a1a1a', marginBottom: 8 }}>
-                Your {derivedArchetype?.archetype.chronotypeIcon} {derivedArchetype?.archetype.chronotypeName} × {derivedArchetype?.archetype.profileIcon} {derivedArchetype?.archetype.profileName} program is ready
+              <div style={{ fontSize: 40, marginBottom: 12 }}>🔮</div>
+              <h2 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 24, fontWeight: 400, color: '#1a1a1a', marginBottom: 8 }}>
+                Your archetype is taking shape
               </h2>
               <p style={{ fontSize: 14, color: '#888', lineHeight: 1.7 }}>
-                Enter your access code to unlock your full 4-week personalised plan and start today.
+                9 more questions to reveal your full Wellness Archetype and personalised 4-week program. Enter your access code to continue.
               </p>
             </div>
 
-            {/* Beta pricing callout */}
-            <div style={{ background: 'linear-gradient(135deg, #f3f8f3 0%, #fdf9f0 100%)', border: '2px solid var(--sage-light)', borderRadius: 14, padding: '18px 20px', marginBottom: 22 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <div style={{ background: 'var(--sage)', color: 'white', fontSize: 10, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', padding: '3px 10px', borderRadius: 6 }}>
-                  Beta Founding Member
-                </div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--sage-dark)' }}>First 10 users only</div>
-              </div>
-              <div style={{ fontSize: 28, fontWeight: 700, color: '#1a1a16', marginBottom: 4 }}>
-                €10
-                <span style={{ fontSize: 15, fontWeight: 400, color: '#888', marginLeft: 6 }}>lifetime access</span>
-              </div>
-              <div style={{ fontSize: 12, color: '#666', lineHeight: 1.6 }}>
-                One-time payment • No subscription • Full access forever • Priority support
-              </div>
-            </div>
-
-            {/* What's included */}
+            {/* What they get teaser */}
             <div style={{ background: '#f7f3ed', borderRadius: 14, padding: '16px 18px', marginBottom: 22 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, color: '#888', marginBottom: 12 }}>What you get</div>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, color: '#888', marginBottom: 12 }}>What unlocks with access</div>
               {[
-                `${derivedArchetype?.archetype.profileIcon} Your ${derivedArchetype?.archetype.profileName} 4-week program`,
+                '🌿 Your personal Wellness Archetype — one of 8 profiles',
+                '📋 4-week program built around your biology',
                 '⏱ Guided routines with step-by-step timer',
                 '🔬 Peer-reviewed science behind every habit',
-                '🎮 Gamification - coins, energy, avatar progression',
                 '👥 Private Spring cohort community',
-                '📊 Progress tracking & weekly roadmap',
               ].map(item => (
                 <div key={item} style={{ fontSize: 13, color: '#555', marginBottom: 8, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                   <span style={{ flexShrink: 0 }}>{item.split(' ')[0]}</span>
@@ -941,32 +755,52 @@ export default function Onboarding({ onComplete }) {
               ))}
             </div>
 
-            <form onSubmit={(e) => { e.preventDefault(); setPhase('name'); }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <form onSubmit={handleGate} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={styles.inputLabel}>Access code</label>
+                <input
+                  type="text"
+                  value={gateCode}
+                  onChange={e => setGateCode(e.target.value)}
+                  placeholder="e.g. bloom-spring-007"
+                  autoFocus
+                  style={{ ...styles.input, textAlign: 'center', letterSpacing: '1px' }}
+                  onFocus={e => e.target.style.borderColor = 'var(--sage)'}
+                  onBlur={e => e.target.style.borderColor = '#e8e4de'}
+                />
+              </div>
+
+              {gateError && (
+                <div style={{ background: '#fdf0f0', border: '1px solid #e07070', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#c05050' }}>
+                  {gateError}
+                </div>
+              )}
+
               <button
                 type="submit"
-                style={{ ...styles.btnPrimary, background: 'var(--sage)', fontSize: 15 }}
+                disabled={gateLoading || !gateCode.trim()}
+                style={{ ...styles.btnPrimary, opacity: gateLoading || !gateCode.trim() ? 0.6 : 1, cursor: gateLoading || !gateCode.trim() ? 'not-allowed' : 'pointer' }}
               >
-                I have an access code →
+                {gateLoading ? 'Checking...' : 'Continue my quiz →'}
               </button>
             </form>
 
-            <div style={{ textAlign: 'center', marginTop: 18, paddingTop: 18, borderTop: '1px solid #e8e4de' }}>
-              <div style={{ fontSize: 12, color: '#aaa', marginBottom: 8 }}>Don&apos;t have a code yet?</div>
+            <div style={{ textAlign: 'center', marginTop: 16 }}>
               <a
                 href="https://byjbea.gumroad.com/l/qdxti"
                 target="_blank"
                 rel="noreferrer"
-                style={{ display: 'inline-block', background: '#1a1a16', color: 'white', padding: '12px 24px', borderRadius: 10, fontSize: 14, fontWeight: 600, textDecoration: 'none', fontFamily: 'DM Sans, sans-serif' }}
+                style={{ fontSize: 13, color: 'var(--sage-dark)', fontWeight: 600, textDecoration: 'none' }}
               >
-                Get beta access for €10 →
+                Don&apos;t have a code? Get access for €10 →
               </a>
             </div>
 
             <button
-              onClick={() => setPhase('reveal')}
-              style={{ background: 'transparent', border: 'none', color: '#bbb', fontSize: 12, cursor: 'pointer', marginTop: 16, width: '100%', textAlign: 'center', fontFamily: 'DM Sans, sans-serif' }}
+              onClick={() => { setCurrent(3); setPhase('quiz'); }}
+              style={{ background: 'transparent', border: 'none', color: '#bbb', fontSize: 12, cursor: 'pointer', marginTop: 12, width: '100%', textAlign: 'center', fontFamily: 'DM Sans, sans-serif' }}
             >
-              ← Back to my archetype
+              ← Back to quiz
             </button>
           </div>
         </div>
