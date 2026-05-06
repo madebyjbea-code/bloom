@@ -237,7 +237,7 @@ export default function QuizAnalytics() {
               {funnel.q4 - funnel.paywall_hit > 0 && (
                 <li style={styles.warningInsight}>
                   ⚠️ <strong>{funnel.q4 - funnel.paywall_hit}</strong> people answered Q4 
-                  but didn't trigger the paywall (possible tracking gap)
+                  but did not trigger the paywall (possible tracking gap)
                 </li>
               )}
             </ul>
