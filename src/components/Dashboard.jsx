@@ -9,7 +9,6 @@ import ProgressStats from './ProgressStats';
 import CustomHabitModal from './CustomHabitModal';
 import FeedbackModal from './FeedbackModal';
 import TabRoadmap from './TabRoadmap';
-import QuizAnalytics from './QuizAnalytics';
 
 const ROUTINES = {
   morning: {
@@ -74,7 +73,6 @@ const NAV = [
   { key: 'planet',    icon: '🌍', label: 'Planet' },
   { key: 'community', icon: '👥', label: 'Community' },
   { key: 'roadmap',   icon: '🗺️',  label: 'Roadmap' },
-  { key: 'analytics', icon: '📊', label: 'Analytics', adminOnly: true },
 ];
 
 // ── Paste your UUID from Supabase → users table → id column ──
@@ -196,6 +194,78 @@ function StatsLogModal({ statsForm, setStatsForm, manualStats, setManualStats, s
   );
 }
 
+function StreakHistoryModal({ habit, streakData, onClose }) {
+  if (!habit) return null;
+  const current = streakData?.current_streak || 0;
+  const longest = streakData?.longest_streak || 0;
+  const lastCompleted = streakData?.last_completed || 'Never';
+
+  return (
+    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:24,padding:28,width:460,maxWidth:'95vw',maxHeight:'85vh',overflowY:'auto'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+          <div>
+            <h2 style={{fontFamily:'Instrument Serif,serif',fontSize:24,marginBottom:4}}>{habit.emoji} {habit.name}</h2>
+            <p style={{fontSize:13,color:'#888'}}>Streak History</p>
+          </div>
+          <button onClick={onClose} style={{width:30,height:30,borderRadius:'50%',border:'1.5px solid #e8e4de',background:'transparent',cursor:'pointer',fontSize:15}}>✕</button>
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:12,marginBottom:24}}>
+          <div style={{background:'#f3f8f3',border:'1.5px solid #8aad8a',borderRadius:16,padding:18,textAlign:'center'}}>
+            <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:1,color:'#5a7a5a',marginBottom:8}}>Current Streak</div>
+            <div style={{fontFamily:'Syne,sans-serif',fontSize:32,fontWeight:700,color:'#8aad8a',marginBottom:4}}>{current}</div>
+            <div style={{fontSize:12,color:'#888'}}>days</div>
+          </div>
+          <div style={{background:'#fdf8ed',border:'1.5px solid #d4af6a',borderRadius:16,padding:18,textAlign:'center'}}>
+            <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:1,color:'#c4a882',marginBottom:8}}>Longest Streak</div>
+            <div style={{fontFamily:'Syne,sans-serif',fontSize:32,fontWeight:700,color:'#d4af6a',marginBottom:4}}>{longest}</div>
+            <div style={{fontSize:12,color:'#888'}}>days</div>
+          </div>
+        </div>
+
+        <div style={{background:'#f7f3ed',borderRadius:14,padding:16,marginBottom:18}}>
+          <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:1,color:'#888',marginBottom:10}}>Last Completed</div>
+          <div style={{fontSize:14,fontWeight:500,color:'#2a2a2a'}}>{lastCompleted === 'Never' ? 'Not yet completed' : new Date(lastCompleted).toLocaleDateString('en-GB', {weekday:'long', year:'numeric', month:'long', day:'numeric'})}</div>
+        </div>
+
+        {longest > 0 && (
+          <div style={{background:'linear-gradient(135deg,#f3f8f3,#e8f0e8)',borderRadius:14,padding:16,border:'1px solid #b5ceb5'}}>
+            <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:1,color:'#5a7a5a',marginBottom:8}}>Milestones</div>
+            <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              {[
+                {days:7, emoji:'🔥', label:'Week Warrior'},
+                {days:14, emoji:'⚡', label:'Fortnight Force'},
+                {days:21, emoji:'🌟', label:'Habit Formed'},
+                {days:30, emoji:'🏆', label:'Month Master'},
+                {days:60, emoji:'💎', label:'Diamond Streak'},
+                {days:90, emoji:'👑', label:'Legend Status'},
+              ].map(m => {
+                const achieved = longest >= m.days;
+                return (
+                  <div key={m.days} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',background:achieved?'white':'transparent',borderRadius:10,border:achieved?'1px solid #b5ceb5':'1px dashed #e8e4de'}}>
+                    <span style={{fontSize:20,opacity:achieved?1:0.3}}>{m.emoji}</span>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontWeight:600,color:achieved?'#5a7a5a':'#aaa'}}>{m.label}</div>
+                      <div style={{fontSize:11,color:'#888'}}>{m.days} days</div>
+                    </div>
+                    {achieved && <div style={{fontSize:11,fontWeight:700,color:'#8aad8a'}}>✓</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <button onClick={onClose}
+          style={{width:'100%',marginTop:20,padding:13,background:'#8aad8a',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [tab, setTab]               = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(
@@ -237,6 +307,9 @@ export default function Dashboard() {
   const [removedHabits, setRemovedHabits] = useState(() => {
     try { return JSON.parse(localStorage.getItem('bloom-removed-habits') || '[]'); } catch { return []; }
   });
+  const [weeklyData, setWeeklyData]   = useState({}); // { 'YYYY-MM-DD': ['habit_key1', 'habit_key2'] }
+  const [streakHistoryOpen, setStreakHistoryOpen] = useState(false);
+  const [streakHistoryHabit, setStreakHistoryHabit] = useState(null);
 
   const [routine, setRoutine]   = useState(null);
   const [rStep, setRStep]       = useState(0);
@@ -258,8 +331,6 @@ export default function Dashboard() {
   const ge            = useStore(s=>s.greenEnergy);
   const level         = useStore(s=>s.level);
   const habits        = useStore(s=>s.habits);
-  
-  const isAdmin       = userId === ADMIN_USER_ID;
   const done          = useStore(s=>s.completedToday);
   const setStats      = useStore(s=>s.setStats);
   const setHabits     = useStore(s=>s.setHabits);
@@ -293,7 +364,7 @@ export default function Dashboard() {
 
   useEffect(()=>{
     checkDailyReset();
-    if(userId){ load(); loadInv(); loadStreaks(); }
+    if(userId){ load(); loadInv(); loadStreaks(); loadWeeklyData(); }
   },[userId]);
 
   async function load() {
@@ -387,6 +458,29 @@ export default function Dashboard() {
     }
   }
 
+  async function loadWeeklyData(){
+    if(!userId) return;
+    // Get completions for the past 7 days
+    const dates = [];
+    for(let i=6; i>=0; i--){
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      dates.push(d.toISOString().split('T')[0]);
+    }
+    const {data} = await supabase.from('habit_completions')
+      .select('date, habit_key')
+      .eq('user_id', userId)
+      .in('date', dates);
+    if(data){
+      const map = {};
+      data.forEach(c => {
+        if(!map[c.date]) map[c.date] = [];
+        map[c.date].push(c.habit_key);
+      });
+      setWeeklyData(map);
+    }
+  }
+
   async function updateStreak(habitKey, completing){
     if(!userId) return;
     const today=new Date().toISOString().split('T')[0];
@@ -456,6 +550,7 @@ export default function Dashboard() {
       if(userId) await supabase.from('user_stats').update({coins:nc,green_energy:ng,health:nh}).eq('user_id',userId);
       setStats({coins:nc,greenEnergy:ng,health:nh});
       await updateStreak(h.key, true);
+      loadWeeklyData(); // Refresh week-at-a-glance
       toast(`✅ +${h.coins} 🪙${h.ge>0?` +${h.ge} ⚡`:''}`);
     } else {
       if(userId) await supabase.from('habit_completions').delete().eq('user_id',userId).eq('habit_key',h.key).eq('date',today);
@@ -463,6 +558,7 @@ export default function Dashboard() {
       if(userId) await supabase.from('user_stats').update({coins:nc,green_energy:ng,health:nh}).eq('user_id',userId);
       setStats({coins:nc,greenEnergy:ng,health:nh});
       await updateStreak(h.key, false);
+      loadWeeklyData(); // Refresh week-at-a-glance
       toast('↩️ Habit unmarked');
     }
   }
@@ -758,6 +854,17 @@ export default function Dashboard() {
                   {longest>0&&<span style={{fontSize:10,color:'#aaa'}}>best: {longest}d</span>}
                 </div>
               </div>
+              {/* View Streak button */}
+              {longest>0&&(
+                <button
+                  onClick={e=>{e.stopPropagation();setStreakHistoryHabit(h);setStreakHistoryOpen(true);}}
+                  style={{width:'100%',marginTop:8,padding:'6px',background:'transparent',border:'1px dashed #e8e4de',borderRadius:8,fontSize:10,fontWeight:600,color:'#888',cursor:'pointer',fontFamily:'DM Sans,sans-serif',transition:'all 0.2s'}}
+                  onMouseOver={e=>{e.currentTarget.style.borderColor='#8aad8a';e.currentTarget.style.color='#5a7a5a';}}
+                  onMouseOut={e=>{e.currentTarget.style.borderColor='#e8e4de';e.currentTarget.style.color='#888';}}
+                >
+                  📊 View streak history
+                </button>
+              )}
             </div>
           );
         })}
@@ -797,7 +904,7 @@ export default function Dashboard() {
         {sidebarOpen && (
           <>
             <div style={{height:44,marginBottom:8}}/>
-            {NAV.filter(n => !n.adminOnly || isAdmin).map(n=>(
+            {NAV.map(n=>(
               <button key={n.key} onClick={()=>setTab(n.key)} title={n.label}
                 style={{width:'100%',height:44,borderRadius:12,background:tab===n.key?'#2d5a2d':'transparent',border:'none',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',gap:12,padding:'0 14px',color:tab===n.key?'white':'#6a9a6a',transition:'all 0.2s',position:'relative',fontFamily:'DM Sans,sans-serif',fontWeight:tab===n.key?600:400}}>
                 <span style={{fontSize:18,flexShrink:0}}>{n.icon}</span>
@@ -845,7 +952,21 @@ export default function Dashboard() {
 
   const TabDashboard=()=>{
     const today=new Date();
-    const wdays=Array.from({length:7},(_,i)=>{const d=new Date(today);d.setDate(today.getDate()-today.getDay()+i);return{n:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()],num:d.getDate(),today:d.toDateString()===today.toDateString()};});
+    const wdays=Array.from({length:7},(_,i)=>{
+      const d=new Date(today);
+      d.setDate(today.getDate()-today.getDay()+i);
+      const dateStr=d.toISOString().split('T')[0];
+      const completedKeys=weeklyData[dateStr]||[];
+      const completedCount=completedKeys.length;
+      return{
+        n:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()],
+        num:d.getDate(),
+        today:d.toDateString()===today.toDateString(),
+        dateStr,
+        completedCount,
+        totalHabits:allHabits.length,
+      };
+    });
     return(
       <div style={{padding:'22px 26px',maxWidth:1200}}>
         <div style={{marginBottom:20}}>
@@ -907,12 +1028,26 @@ export default function Dashboard() {
             <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20}}>
               <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:12}}>Week at a Glance · Week {week} of 4</div>
               <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:6}}>
-                {wdays.map(d=>(
-                  <div key={d.num} style={{borderRadius:10,padding:'7px 4px',textAlign:'center',border:`1.5px solid ${d.today?'#8aad8a':'#e8e4de'}`,background:d.today?'#f3f8f3':'white',cursor:'pointer'}}>
-                    <div style={{fontSize:9,color:'#888',textTransform:'uppercase',letterSpacing:'0.5px'}}>{d.n}</div>
-                    <div style={{fontWeight:600,fontSize:13,marginTop:2,color:d.today?'#5a7a5a':'#2a2a2a'}}>{d.num}</div>
-                  </div>
-                ))}
+                {wdays.map(d=>{
+                  const pct=d.totalHabits>0?Math.round((d.completedCount/d.totalHabits)*100):0;
+                  const allDone=d.completedCount===d.totalHabits&&d.totalHabits>0;
+                  return(
+                    <div key={d.num} style={{borderRadius:10,padding:'8px 4px',textAlign:'center',border:`1.5px solid ${d.today?'#8aad8a':allDone?'#b5ceb5':'#e8e4de'}`,background:d.today?'#f3f8f3':allDone?'#f8fcf8':'white',cursor:'pointer'}}>
+                      <div style={{fontSize:9,color:'#888',textTransform:'uppercase',letterSpacing:'0.5px'}}>{d.n}</div>
+                      <div style={{fontWeight:600,fontSize:13,marginTop:2,marginBottom:4,color:d.today?'#5a7a5a':allDone?'#8aad8a':'#2a2a2a'}}>{d.num}</div>
+                      <div style={{display:'flex',justifyContent:'center',alignItems:'center',gap:2,flexWrap:'wrap'}}>
+                        {d.completedCount>0&&(
+                          <div style={{fontSize:9,fontWeight:700,color:allDone?'#8aad8a':'#d4af6a'}}>
+                            {allDone?'✓':d.completedCount}
+                          </div>
+                        )}
+                        {!allDone&&d.completedCount===0&&(
+                          <div style={{width:4,height:4,borderRadius:'50%',background:'#e8e4de'}}/>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
             {userId === ADMIN_USER_ID && <DashboardPostCard/>}
@@ -1384,7 +1519,6 @@ export default function Dashboard() {
           {tab==='community'  && <TabCommunity/>}
           {tab==='settings'   && <TabSettings/>}
           {tab==='roadmap'    && <TabRoadmap onFeedback={()=>setFeedbackOpen(true)}/>}
-          {tab==='analytics'  && isAdmin && <QuizAnalytics/>}
         </div>
       </div>
       {shopOpen    && <ShopModal/>}
@@ -1393,6 +1527,7 @@ export default function Dashboard() {
       {customHabitOpen && <CustomHabitModal onClose={()=>setCustomHabitOpen(false)}/>}
       {statsLogOpen && <StatsLogModal statsForm={statsForm} setStatsForm={setStatsForm} manualStats={manualStats} setManualStats={setManualStats} setStatsLogOpen={setStatsLogOpen}/>}
       {feedbackOpen && <FeedbackModal onClose={()=>setFeedbackOpen(false)}/>}
+      {streakHistoryOpen && <StreakHistoryModal habit={streakHistoryHabit} streakData={streaks[streakHistoryHabit?.key]} onClose={()=>setStreakHistoryOpen(false)}/>}
       <div id="bloom-toast" className="toast" style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%) translateY(20px)',background:'#1a1a16',color:'white',padding:'12px 20px',borderRadius:99,fontSize:13,fontWeight:500,opacity:0,transition:'all 0.3s',zIndex:300,whiteSpace:'nowrap',pointerEvents:'none'}}/>
       <style>{`
         @keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}

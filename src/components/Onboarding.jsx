@@ -299,7 +299,7 @@ export default function Onboarding({ onComplete }) {
     setCollectedScores(newScores);
 
     // Show gate after question 4 (index 3)
-    if (current === 3) {
+    if (current === QUESTIONS.length - 1) {
       trackQuizEvent('paywall_encountered', { 
         question_number: 4,
         reached_question: current + 1 
