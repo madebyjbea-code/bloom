@@ -248,6 +248,12 @@ export default function Onboarding({ onComplete }) {
   const [gateLoading, setGateLoading] = useState(false);
 
   const setUser = useStore((s) => s.setUser);
+  
+  // Get archetype data from Zustand (used in reveal phase)
+  const archetypeKey = useStore(s => s.archetypeKey) || 'steadybuilder';
+  const archetypeName = useStore(s => s.archetypeName) || 'The Steady Builder';
+  const archetypeIcon = useStore(s => s.archetypeIcon) || '🌿';
+  const chronotype = useStore(s => s.chronotype) || 'bear';
 
   // Calculate archetype from first 4 questions for preview
   function calculateArchetypePreview() {
@@ -765,12 +771,6 @@ export default function Onboarding({ onComplete }) {
   // PHASE: REVEAL (Simple Archetype + Chronotype)
   // ───────────────────────────────────────────────────────────
   if (phase === 'reveal') {
-    // Get archetype data from Zustand (already calculated in handleNext)
-    const archetypeKey = useStore(s => s.archetypeKey) || 'steadybuilder';
-    const archetypeName = useStore(s => s.archetypeName) || 'The Steady Builder';
-    const archetypeIcon = useStore(s => s.archetypeIcon) || '🌿';
-    const chronotype = useStore(s => s.chronotype) || 'bear';
-
     const chronoMap = {
       lion: { name: 'Lion', icon: '🦁', desc: 'Early riser, peak morning energy' },
       bear: { name: 'Bear', icon: '🐻', desc: 'Standard rhythm, midday peak' },
