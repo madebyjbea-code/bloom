@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { getHabitsForUser } from '../lib/springProgram';
 import { useStore } from '../lib/store';
+import ProgramReveal from './ProgramReveal';
 
 // ─── QUIZ TRACKING ────────────────────────────────────────
 function getOrCreateSessionId() {
@@ -230,7 +231,7 @@ const ARCHETYPE_CHRONO = {
 
 // ─── COMPONENT ────────────────────────────────────────────
 export default function Onboarding({ onComplete }) {
-  const [phase, setPhase] = useState('intro'); // intro | signin | quiz | gate | name
+  const [phase, setPhase] = useState('intro'); // intro | signin | quiz | reveal | gate | name
   const [current, setCurrent] = useState(0);
   const [answers, setAnswers] = useState(new Array(QUESTIONS.length).fill(null));
   const [collectedScores, setCollectedScores] = useState({});
@@ -247,6 +248,36 @@ export default function Onboarding({ onComplete }) {
   const [gateLoading, setGateLoading] = useState(false);
 
   const setUser = useStore((s) => s.setUser);
+
+  // Calculate archetype from first 4 questions for preview
+  function calculateArchetypePreview() {
+    const s = {
+      chrono: (collectedScores.chrono || ['bear'])[0],
+      level: (collectedScores.level || ['foundation'])[0],
+      stress: (collectedScores.stress || ['physical'])[0],
+      stressMgmt: (collectedScores.stressMgmt || ['occasional'])[0],
+      morning: (collectedScores.morning || ['gradual'])[0],
+      goals: collectedScores.goal || ['energy'],
+      drain: collectedScores.drain || [],
+      // Defaults for questions not yet answered
+      movTime: 'moderate',
+      activity: 'moderate',
+      nutBarrier: 'time',
+    };
+
+    const archetypeKey = deriveArchetype(s);
+    const archetype = ARCHETYPES[archetypeKey];
+    const chronotype = ARCHETYPE_CHRONO[archetypeKey] || s.chrono;
+
+    // Temporarily save to Zustand for ProgramReveal to display
+    setUser({
+      archetypeKey,
+      archetypeName: archetype.name,
+      archetypeIcon: archetype.icon,
+      chronotype,
+      name: 'there', // Temporary name for reveal screen
+    });
+  }
   const setHabits = useStore((s) => s.setHabits);
 
   // Track quiz start on mount
@@ -297,13 +328,11 @@ export default function Onboarding({ onComplete }) {
 
     setCollectedScores(newScores);
 
-    // Show gate after question 4 (index 3)
+    // Show reveal after question 4 (index 3)
     if (current === 3) {
-      trackQuizEvent('paywall_encountered', { 
-        question_number: 4,
-        reached_question: current + 1 
-      });
-      setPhase('gate');
+      calculateArchetypePreview();
+      trackQuizEvent('archetype_revealed');
+      setPhase('reveal');
     } else if (current < QUESTIONS.length - 1) {
       setCurrent(current + 1);
       // Track next question view
@@ -312,6 +341,7 @@ export default function Onboarding({ onComplete }) {
         question_text: QUESTIONS[current + 1]?.text 
       });
     } else {
+      // All 13 questions complete - go to name entry
       trackQuizEvent('quiz_completed', {
         total_questions: QUESTIONS.length
       });
@@ -321,6 +351,12 @@ export default function Onboarding({ onComplete }) {
 
   function handleBack() {
     if (current > 0) setCurrent(current - 1);
+  }
+
+  // ── Continue from reveal to paywall gate ──
+  function handleRevealContinue() {
+    trackQuizEvent('paywall_encountered');
+    setPhase('gate');
   }
 
   // ── Finish — create user in Supabase ──
@@ -706,6 +742,152 @@ export default function Onboarding({ onComplete }) {
   }
 
   // ── RENDER: GATE ─────────────────────────────────────────
+  // ───────────────────────────────────────────────────────
+  // PHASE: REVEAL (Archetype + Chronotype)
+  // ───────────────────────────────────────────────────────
+  if (phase === 'reveal') {
+    // Calculate archetype from collected scores
+    const s = {
+      chrono: (collectedScores.chrono || ['bear'])[0],
+      level: (collectedScores.level || ['foundation'])[0],
+      activity: (collectedScores.activity || ['sedentary'])[0],
+      movTime: (collectedScores.movTime || ['minimal'])[0],
+      stress: (collectedScores.stress || ['physical'])[0],
+      nutBarrier: (collectedScores.nutBarrier || ['time'])[0],
+      stressMgmt: (collectedScores.stressMgmt || ['occasional'])[0],
+      morning: (collectedScores.morning || ['gradual'])[0],
+      goals: collectedScores.goal || ['energy'],
+      drain: collectedScores.drain || [],
+    };
+
+    const archetypeKey = deriveArchetype(s);
+    const archetype = ARCHETYPES[archetypeKey];
+    const chronotype = ARCHETYPE_CHRONO[archetypeKey] || s.chrono;
+
+    const chronoMap = {
+      lion: { name: 'Lion', icon: '🦁', desc: 'Early riser, peak morning energy' },
+      bear: { name: 'Bear', icon: '🐻', desc: 'Standard rhythm, midday peak' },
+      wolf: { name: 'Wolf', icon: '🐺', desc: 'Night owl, evening energy' },
+      dolphin: { name: 'Dolphin', icon: '🐬', desc: 'Irregular sleeper, variable energy' },
+    };
+    const chronoInfo = chronoMap[chronotype] || chronoMap.bear;
+
+    return (
+      <div style={styles.page}>
+        <div style={styles.container}>
+          <div style={styles.logoBar}>
+            <span style={styles.logo}>well with j bea</span>
+          </div>
+
+          {/* Archetype Reveal */}
+          <div style={{
+            background: 'linear-gradient(135deg, #f7f3ed 0%, #e8e4de 100%)',
+            borderRadius: 24,
+            padding: '48px 32px',
+            textAlign: 'center',
+            marginBottom: 32,
+            border: '2px solid var(--sage-light)'
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1.5, color: 'var(--sage-dark)', marginBottom: 16 }}>
+              Your Wellness Archetype
+            </div>
+            
+            <div style={{ fontSize: 64, marginBottom: 16 }}>
+              {archetype.icon}
+            </div>
+            
+            <h1 style={{
+              fontFamily: 'Instrument Serif, serif',
+              fontSize: 32,
+              fontWeight: 400,
+              color: '#1a1a1a',
+              marginBottom: 12
+            }}>
+              {archetype.name}
+            </h1>
+
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              background: 'white',
+              padding: '8px 16px',
+              borderRadius: 24,
+              fontSize: 14,
+              color: '#555',
+              marginTop: 16
+            }}>
+              <span style={{ fontSize: 20 }}>{chronoInfo.icon}</span>
+              <span><strong>{chronoInfo.name}</strong> Chronotype</span>
+            </div>
+
+            <p style={{ fontSize: 14, color: '#777', marginTop: 12, fontStyle: 'italic' }}>
+              {chronoInfo.desc}
+            </p>
+          </div>
+
+          {/* What's Next */}
+          <div style={styles.qCard}>
+            <h3 style={{
+              fontFamily: 'Instrument Serif, serif',
+              fontSize: 20,
+              fontWeight: 400,
+              color: '#1a1a1a',
+              marginBottom: 16
+            }}>
+              Your Personalized Program Includes:
+            </h3>
+
+            {[
+              '📋 4-week habit program tailored to your archetype',
+              '⏱ Guided routines with step-by-step timers',
+              '🔬 Science-backed habits for your biology',
+              '👥 Private Spring cohort community',
+              '🌍 Track your environmental impact',
+            ].map(item => (
+              <div key={item} style={{
+                display: 'flex',
+                gap: 12,
+                alignItems: 'flex-start',
+                fontSize: 14,
+                color: '#555',
+                marginBottom: 12,
+                padding: '8px 0'
+              }}>
+                <span style={{ fontSize: 18, flexShrink: 0 }}>{item.split(' ')[0]}</span>
+                <span>{item.split(' ').slice(1).join(' ')}</span>
+              </div>
+            ))}
+
+            <button
+              onClick={() => {
+                trackQuizEvent('paywall_encountered');
+                setPhase('gate');
+              }}
+              style={{
+                ...styles.btnPrimary,
+                marginTop: 24
+              }}
+            >
+              Unlock your personalized routine →
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+
+  // ───────────────────────────────────────────────────────────
+  // PHASE: REVEAL (Archetype Reveal)
+  // ───────────────────────────────────────────────────────────
+  if (phase === 'reveal') {
+    return <ProgramReveal onAccept={handleRevealContinue} buttonText="Unlock your personalized routine" />;
+  }
+
+  // ───────────────────────────────────────────────────────
+  // PHASE: GATE (Access Code Paywall)
+  // ───────────────────────────────────────────────────────
   if (phase === 'gate') {
     return (
       <div style={styles.page}>
@@ -714,26 +896,26 @@ export default function Onboarding({ onComplete }) {
             <span style={styles.logo}>well with j bea</span>
           </div>
 
-          {/* Progress — frozen at q4 */}
+          {/* Progress — complete */}
           <div style={{ marginBottom: 28 }}>
             <div style={styles.progMeta}>
-              <span>Question 4 of {QUESTIONS.length} complete</span>
-              <span>30%</span>
+              <span>Quiz complete — Access required</span>
+              <span>100%</span>
             </div>
             <div style={styles.progBar}>
-              <div style={{ ...styles.progFill, width: '30%' }} />
+              <div style={{ ...styles.progFill, width: '100%' }} />
             </div>
           </div>
 
-          {/* Teaser */}
+          {/* Access required message */}
           <div style={styles.qCard}>
             <div style={{ textAlign: 'center', marginBottom: 24 }}>
-              <div style={{ fontSize: 40, marginBottom: 12 }}>🔮</div>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>🔐</div>
               <h2 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 24, fontWeight: 400, color: '#1a1a1a', marginBottom: 8 }}>
-                Your archetype is taking shape
+                Ready to begin your journey?
               </h2>
               <p style={{ fontSize: 14, color: '#888', lineHeight: 1.7 }}>
-                9 more questions to reveal your full Wellness Archetype and personalised 4-week program. Enter your access code to continue.
+                Enter your access code to unlock your personalized 4-week program and join the Spring cohort.
               </p>
             </div>
 
