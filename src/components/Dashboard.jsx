@@ -9,6 +9,7 @@ import ProgressStats from './ProgressStats';
 import CustomHabitModal from './CustomHabitModal';
 import FeedbackModal from './FeedbackModal';
 import TabRoadmap from './TabRoadmap';
+import QuizAnalytics from './QuizAnalytics';
 
 const ROUTINES = {
   morning: {
@@ -73,6 +74,7 @@ const NAV = [
   { key: 'planet',    icon: '🌍', label: 'Planet' },
   { key: 'community', icon: '👥', label: 'Community' },
   { key: 'roadmap',   icon: '🗺️',  label: 'Roadmap' },
+  { key: 'analytics', icon: '📊', label: 'Analytics', adminOnly: true },
 ];
 
 // ── Paste your UUID from Supabase → users table → id column ──
@@ -266,6 +268,42 @@ function StreakHistoryModal({ habit, streakData, onClose }) {
   );
 }
 
+function SustainUnlockModal({ onClose }) {
+  return (
+    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:250}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'linear-gradient(135deg,#f3f8f3,#e8f0e8)',borderRadius:24,padding:36,width:520,maxWidth:'95vw',textAlign:'center',border:'2px solid #8aad8a',boxShadow:'0 8px 32px rgba(90,122,90,0.3)'}}>
+        <div style={{fontSize:48,marginBottom:16}}>🌟</div>
+        <h2 style={{fontFamily:'Instrument Serif,serif',fontSize:28,marginBottom:12,color:'#1a1a1a'}}>Sustain Mode Unlocked!</h2>
+        <p style={{fontSize:15,color:'#5a7a5a',lineHeight:1.7,marginBottom:24}}>
+          You've completed the 4-week Spring Wellness Program! Your foundation is built. Now it's time to sustain what you've created.
+        </p>
+        
+        <div style={{background:'white',borderRadius:16,padding:20,marginBottom:24,textAlign:'left'}}>
+          <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:1,color:'#888',marginBottom:14}}>What's Next</div>
+          <div style={{display:'flex',flexDirection:'column',gap:12}}>
+            {[
+              {icon:'✅',text:'Keep tracking your Week 4 habits — they\'re your core stack now'},
+              {icon:'➕',text:'Add custom habits anytime to expand your routine'},
+              {icon:'🔥',text:'Build streaks and earn rewards indefinitely'},
+              {icon:'🌍',text:'Continue generating Green Energy for the planet'},
+            ].map((item,i)=>(
+              <div key={i} style={{display:'flex',alignItems:'flex-start',gap:10}}>
+                <span style={{fontSize:18,flexShrink:0}}>{item.icon}</span>
+                <span style={{fontSize:13,color:'#444',lineHeight:1.6}}>{item.text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <button onClick={onClose}
+          style={{width:'100%',padding:14,background:'linear-gradient(135deg,#8aad8a,#5a7a5a)',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif',boxShadow:'0 4px 14px rgba(90,122,90,0.3)'}}>
+          Continue Building 🌱
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [tab, setTab]               = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(
@@ -310,6 +348,8 @@ export default function Dashboard() {
   const [weeklyData, setWeeklyData]   = useState({}); // { 'YYYY-MM-DD': ['habit_key1', 'habit_key2'] }
   const [streakHistoryOpen, setStreakHistoryOpen] = useState(false);
   const [streakHistoryHabit, setStreakHistoryHabit] = useState(null);
+  const [sustainMode, setSustainMode] = useState(false);
+  const [sustainUnlockOpen, setSustainUnlockOpen] = useState(false);
 
   const [routine, setRoutine]   = useState(null);
   const [rStep, setRStep]       = useState(0);
@@ -337,6 +377,8 @@ export default function Dashboard() {
   const toggleH       = useStore(s=>s.toggleHabit);
   const customHabits  = useStore(s=>s.customHabits);
   const checkDailyReset = useStore(s=>s.checkDailyReset);
+
+  const isAdmin = userId === ADMIN_USER_ID;
 
   const arch = (archetypeKey && ARCHETYPE_INFO[archetypeKey])
     ? ARCHETYPE_INFO[archetypeKey]
@@ -374,14 +416,37 @@ export default function Dashboard() {
         let sd = u.program_start_date;
         if(!sd){ sd=new Date().toISOString(); await supabase.from('users').update({program_start_date:sd}).eq('id',userId); }
         const w=getCurrentWeek(sd), d=getDayOfWeek(sd);
-        setWeek(w); setDay(d);
-        if(d===1&&w>1&&(u.current_week||1)<w){
+        
+        // Check if user has completed Week 4 and should enter Sustain Mode
+        // Safety: Check if sustain_mode column exists (in case migration hasn't run)
+        const inSustainMode = u.sustain_mode !== undefined ? (u.sustain_mode || false) : false;
+        setSustainMode(inSustainMode);
+        
+        // If week > 4 and not yet in sustain mode, trigger unlock
+        if(w > 4 && !inSustainMode){
+          try {
+            await supabase.from('users').update({sustain_mode:true}).eq('id',userId);
+            setSustainMode(true);
+            setSustainUnlockOpen(true);
+          } catch(e) {
+            console.warn('sustain_mode column not found - run add_sustain_mode.sql migration');
+          }
+        }
+        
+        // In Sustain Mode, keep showing Week 4 habits
+        const displayWeek = inSustainMode ? 4 : Math.min(w, 4);
+        setWeek(displayWeek); 
+        setDay(d);
+        
+        // Reflection prompts only during weeks 1-4
+        if(!inSustainMode && d===1&&w>1&&w<=4&&(u.current_week||1)<w){
           const {data:r}=await supabase.from('weekly_reflections').select('id').eq('user_id',userId).eq('week_number',w-1).single();
           if(!r) setReflOpen(true);
         }
+        
         const src = archetypeKey||u.chronotype||'steadybuilder';
-        setHabits(getHabitsForUser(src,w));
-        if((u.current_week||1)!==w) await supabase.from('users').update({current_week:w}).eq('id',userId);
+        setHabits(getHabitsForUser(src, displayWeek));
+        if((u.current_week||1)!==displayWeek && !inSustainMode) await supabase.from('users').update({current_week:displayWeek}).eq('id',userId);
       }
       const {data:st}=await supabase.from('user_stats').select('*').eq('user_id',userId).single();
       if(st) setStats({health:st.health,coins:st.coins,greenEnergy:st.green_energy,level:st.level});
@@ -803,7 +868,7 @@ export default function Dashboard() {
     <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:22}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
         <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888'}}>
-          Today&apos;s Habits · Week {week} · {arch.icon} {arch.name}
+          Today&apos;s Habits · {sustainMode ? '🌟 Sustain Mode' : `Week ${week}`} · {arch.icon} {arch.name}
         </div>
         <button onClick={()=>setCustomHabitOpen(true)}
           style={{display:'flex',alignItems:'center',gap:5,padding:'6px 12px',background:'#f3f8f3',border:'1.5px solid #b5ceb5',borderRadius:99,fontSize:12,fontWeight:600,color:'#5a7a5a',cursor:'pointer',fontFamily:'DM Sans,sans-serif',transition:'all 0.2s'}}>
@@ -904,7 +969,7 @@ export default function Dashboard() {
         {sidebarOpen && (
           <>
             <div style={{height:44,marginBottom:8}}/>
-            {NAV.map(n=>(
+            {NAV.filter(n => !n.adminOnly || isAdmin).map(n=>(
               <button key={n.key} onClick={()=>setTab(n.key)} title={n.label}
                 style={{width:'100%',height:44,borderRadius:12,background:tab===n.key?'#2d5a2d':'transparent',border:'none',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',gap:12,padding:'0 14px',color:tab===n.key?'white':'#6a9a6a',transition:'all 0.2s',position:'relative',fontFamily:'DM Sans,sans-serif',fontWeight:tab===n.key?600:400}}>
                 <span style={{fontSize:18,flexShrink:0}}>{n.icon}</span>
@@ -971,9 +1036,11 @@ export default function Dashboard() {
       <div style={{padding:'22px 26px',maxWidth:1200}}>
         <div style={{marginBottom:20}}>
           <h1 style={{fontFamily:'Instrument Serif,serif',fontSize:28,fontWeight:400,color:'#1a1a1a',marginBottom:4}}>Good morning, {name} ✨</h1>
-          <p style={{fontSize:13,color:'#888'}}>Week {week} · Day {day} · {habits.length-done.length} habits remaining</p>
-          <div style={{display:'inline-flex',alignItems:'center',gap:6,background:'#f3f8f3',border:'1px solid #b5ceb5',borderRadius:99,padding:'4px 12px',fontSize:12,color:'#5a7a5a',fontWeight:500,marginTop:8}}>
-            {arch.icon} {arch.name} · {lvMap[lvl]||'Building'}
+          <p style={{fontSize:13,color:'#888'}}>
+            {sustainMode ? '🌟 Sustain Mode' : `Week ${week} of 4`} · Day {day} · {habits.length-done.length} habits remaining
+          </p>
+          <div style={{display:'inline-flex',alignItems:'center',gap:6,background:sustainMode?'#f8fcf8':'#f3f8f3',border:`1px solid ${sustainMode?'#8aad8a':'#b5ceb5'}`,borderRadius:99,padding:'4px 12px',fontSize:12,color:sustainMode?'#5a7a5a':'#5a7a5a',fontWeight:500,marginTop:8}}>
+            {arch.icon} {arch.name} · {sustainMode?'Building Forever':lvMap[lvl]||'Building'}
           </div>
         </div>
         <div style={{display:'grid',gridTemplateColumns:'250px 1fr',gap:18,alignItems:'start'}} className="dash-main-grid">
@@ -1026,7 +1093,9 @@ export default function Dashboard() {
               </div>
             </div>
             <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20}}>
-              <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:12}}>Week at a Glance · Week {week} of 4</div>
+              <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:12}}>
+                Week at a Glance · {sustainMode ? '🌟 Sustain Mode' : `Week ${week} of 4`}
+              </div>
               <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:6}}>
                 {wdays.map(d=>{
                   const pct=d.totalHabits>0?Math.round((d.completedCount/d.totalHabits)*100):0;
@@ -1502,6 +1571,7 @@ export default function Dashboard() {
     community:{t:'Community 👥',s:'Spring Wellness Program cohort'},
     settings:{t:'Profile & Settings ⚙️',s:`${arch.icon} ${arch.name} · ${lvMap[lvl]||'Building'}`},
     roadmap:{t:'Roadmap 🗺️',s:"Vote for features · suggest ideas · see what's coming"},
+    analytics:{t:'Quiz Analytics 📊',s:'Conversion funnel & drop-off analysis'},
   };
   const cur=titles[tab]||titles.dashboard;
 
@@ -1519,6 +1589,7 @@ export default function Dashboard() {
           {tab==='community'  && <TabCommunity/>}
           {tab==='settings'   && <TabSettings/>}
           {tab==='roadmap'    && <TabRoadmap onFeedback={()=>setFeedbackOpen(true)}/>}
+          {tab==='analytics'  && isAdmin && <QuizAnalytics/>}
         </div>
       </div>
       {shopOpen    && <ShopModal/>}
@@ -1528,6 +1599,7 @@ export default function Dashboard() {
       {statsLogOpen && <StatsLogModal statsForm={statsForm} setStatsForm={setStatsForm} manualStats={manualStats} setManualStats={setManualStats} setStatsLogOpen={setStatsLogOpen}/>}
       {feedbackOpen && <FeedbackModal onClose={()=>setFeedbackOpen(false)}/>}
       {streakHistoryOpen && <StreakHistoryModal habit={streakHistoryHabit} streakData={streaks[streakHistoryHabit?.key]} onClose={()=>setStreakHistoryOpen(false)}/>}
+      {sustainUnlockOpen && <SustainUnlockModal onClose={()=>setSustainUnlockOpen(false)}/>}
       <div id="bloom-toast" className="toast" style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%) translateY(20px)',background:'#1a1a16',color:'white',padding:'12px 20px',borderRadius:99,fontSize:13,fontWeight:500,opacity:0,transition:'all 0.3s',zIndex:300,whiteSpace:'nowrap',pointerEvents:'none'}}/>
       <style>{`
         @keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}

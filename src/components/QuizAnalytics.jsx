@@ -12,6 +12,7 @@ export default function QuizAnalytics() {
     q2: 0,
     q3: 0,
     q4: 0,
+    archetype_revealed: 0,
     paywall_hit: 0,
     paywall_converted: 0,
     q5: 0,
@@ -63,6 +64,7 @@ export default function QuizAnalytics() {
         started: 0,
         q1: 0, q2: 0, q3: 0, q4: 0, q5: 0, q6: 0, q7: 0,
         q8: 0, q9: 0, q10: 0, q11: 0, q12: 0, q13: 0,
+        archetype_revealed: 0,
         paywall_hit: 0,
         paywall_converted: 0,
         completed: 0,
@@ -77,6 +79,7 @@ export default function QuizAnalytics() {
           sessionMilestones[sid] = {
             started: false,
             questions: new Set(),
+            archetype_revealed: false,
             paywall_hit: false,
             paywall_converted: false,
             completed: false,
@@ -87,6 +90,8 @@ export default function QuizAnalytics() {
           sessionMilestones[sid].started = true;
         } else if (e.event_type === 'question_viewed' && e.question_number) {
           sessionMilestones[sid].questions.add(e.question_number);
+        } else if (e.event_type === 'archetype_revealed') {
+          sessionMilestones[sid].archetype_revealed = true;
         } else if (e.event_type === 'paywall_encountered') {
           sessionMilestones[sid].paywall_hit = true;
         } else if (e.event_type === 'paywall_conversion') {
@@ -112,6 +117,7 @@ export default function QuizAnalytics() {
         if (s.questions.has(11)) counts.q11++;
         if (s.questions.has(12)) counts.q12++;
         if (s.questions.has(13)) counts.q13++;
+        if (s.archetype_revealed) counts.archetype_revealed++;
         if (s.paywall_hit) counts.paywall_hit++;
         if (s.paywall_converted) counts.paywall_converted++;
         if (s.completed) counts.completed++;
@@ -181,8 +187,15 @@ export default function QuizAnalytics() {
             <FunnelBar label="Q3 – Morning Start" count={funnel.q3} total={funnel.started} />
             <FunnelBar label="Q4 – Nutrition Barriers" count={funnel.q4} total={funnel.started} />
             
+            <FunnelBar 
+              label="✨ Archetype Revealed" 
+              count={funnel.archetype_revealed} 
+              total={funnel.started} 
+              success
+            />
+            
             <div style={styles.paywallDivider}>
-              <div style={styles.paywallLabel}>🔒 PAYWALL</div>
+              <div style={styles.paywallLabel}>🔒 PAYWALL (Access Code Required)</div>
             </div>
             
             <FunnelBar 
@@ -192,7 +205,7 @@ export default function QuizAnalytics() {
               highlight 
             />
             <FunnelBar 
-              label="✓ Paywall Converted" 
+              label="✓ Access Code Entered" 
               count={funnel.paywall_converted} 
               total={funnel.paywall_hit} 
               highlight 
@@ -221,8 +234,12 @@ export default function QuizAnalytics() {
             <h3 style={styles.sectionTitle}>Key Insights</h3>
             <ul style={styles.insightsList}>
               <li>
-                <strong>{calcRate(funnel.q4, funnel.q1)}</strong> of people who answer Q1 
-                reach the paywall (Q4)
+                <strong>{calcRate(funnel.archetype_revealed, funnel.q1)}</strong> of people who answer Q1 
+                see their archetype reveal
+              </li>
+              <li>
+                <strong>{calcRate(funnel.paywall_hit, funnel.archetype_revealed)}</strong> of people who see 
+                their archetype hit the paywall
               </li>
               <li>
                 <strong>{paywallConversionRate}</strong> of people who hit the paywall 
@@ -234,9 +251,9 @@ export default function QuizAnalytics() {
                   people who pass the paywall complete the entire quiz
                 </li>
               )}
-              {funnel.q4 - funnel.paywall_hit > 0 && (
+              {funnel.archetype_revealed - funnel.paywall_hit > 0 && (
                 <li style={styles.warningInsight}>
-                  ⚠️ <strong>{funnel.q4 - funnel.paywall_hit}</strong> people answered Q4 
+                  ⚠️ <strong>{funnel.archetype_revealed - funnel.paywall_hit}</strong> people saw their archetype 
                   but did not trigger the paywall (possible tracking gap)
                 </li>
               )}

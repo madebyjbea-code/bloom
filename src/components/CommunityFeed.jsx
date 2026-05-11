@@ -35,6 +35,8 @@ export default function CommunityFeed() {
   const [comments, setComments]       = useState({});
   const [commentText, setCommentText] = useState({});
   const [submittingComment, setSubmittingComment] = useState(null);
+  const [editingPost, setEditingPost] = useState(null); // Post ID being edited
+  const [editText, setEditText]       = useState('');   // Edited content
 
   const userId  = useStore(s => s.userId);
   const name    = useStore(s => s.name);
@@ -133,6 +135,40 @@ export default function CommunityFeed() {
       setCommentText(prev => ({ ...prev, [postId]: '' }));
     }
     setSubmittingComment(null);
+  }
+
+  function startEdit(post) {
+    setEditingPost(post.id);
+    setEditText(post.content);
+  }
+
+  function cancelEdit() {
+    setEditingPost(null);
+    setEditText('');
+  }
+
+  async function saveEdit(postId) {
+    if (!editText.trim()) return;
+    const { error } = await supabase
+      .from('community_posts')
+      .update({ content: editText.trim() })
+      .eq('id', postId);
+    if (!error) {
+      setPosts(prev => prev.map(p => p.id === postId ? { ...p, content: editText.trim() } : p));
+      setEditingPost(null);
+      setEditText('');
+    }
+  }
+
+  async function deletePost(postId) {
+    if (!window.confirm('Delete this post? This cannot be undone.')) return;
+    const { error } = await supabase
+      .from('community_posts')
+      .delete()
+      .eq('id', postId);
+    if (!error) {
+      setPosts(prev => prev.filter(p => p.id !== postId));
+    }
   }
 
   function getCat(key) {
@@ -237,13 +273,53 @@ export default function CommunityFeed() {
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: 13, color: '#444', lineHeight: 1.6, marginBottom: 8, wordBreak: 'break-word' }}>{post.content}</div>
+                  {editingPost === post.id ? (
+                    // Edit mode
+                    <div style={{ marginBottom: 8 }}>
+                      <textarea
+                        value={editText}
+                        onChange={e => setEditText(e.target.value)}
+                        rows={3}
+                        style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #8aad8a', borderRadius: 10, fontSize: 13, fontFamily: 'DM Sans, sans-serif', outline: 'none', color: '#2a2a2a', background: 'white', resize: 'vertical', marginBottom: 8 }}
+                      />
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button onClick={() => saveEdit(post.id)} disabled={!editText.trim()}
+                          style={{ padding: '6px 14px', background: editText.trim() ? '#8aad8a' : '#e8e4de', color: editText.trim() ? 'white' : '#aaa', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: editText.trim() ? 'pointer' : 'not-allowed', fontFamily: 'DM Sans, sans-serif' }}>
+                          Save
+                        </button>
+                        <button onClick={cancelEdit}
+                          style={{ padding: '6px 14px', background: 'transparent', color: '#888', border: '1.5px solid #e8e4de', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    // View mode
+                    <div style={{ fontSize: 13, color: '#444', lineHeight: 1.6, marginBottom: 8, wordBreak: 'break-word' }}>{post.content}</div>
+                  )}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 11, color: '#bbb' }}>{timeAgo(post.created_at)}</span>
                     <button onClick={() => toggleExpand(post.id)}
                       style={{ fontSize: 12, color: '#5a7a5a', fontWeight: 600, background: '#f3f8f3', border: '1px solid #b5ceb5', borderRadius: 99, padding: '4px 12px', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', display: 'flex', alignItems: 'center', gap: 4 }}>
                       💬 {isExpanded ? 'Hide replies' : `Reply${postComments.length > 0 ? ` (${postComments.length})` : ''}`}
                     </button>
+                    {/* Edit & Delete buttons — only for post author or admin */}
+                    {(post.user_id === userId || isAdmin) && editingPost !== post.id && (
+                      <>
+                        <button onClick={() => startEdit(post)}
+                          style={{ fontSize: 11, color: '#5a7a5a', fontWeight: 600, background: 'transparent', border: '1px solid #e8e4de', borderRadius: 99, padding: '4px 10px', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', transition: 'all 0.2s' }}
+                          onMouseOver={e => e.currentTarget.style.borderColor = '#8aad8a'}
+                          onMouseOut={e => e.currentTarget.style.borderColor = '#e8e4de'}>
+                          ✏️ Edit
+                        </button>
+                        <button onClick={() => deletePost(post.id)}
+                          style={{ fontSize: 11, color: '#e07070', fontWeight: 600, background: 'transparent', border: '1px solid #e8e4de', borderRadius: 99, padding: '4px 10px', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', transition: 'all 0.2s' }}
+                          onMouseOver={e => e.currentTarget.style.borderColor = '#e07070'}
+                          onMouseOut={e => e.currentTarget.style.borderColor = '#e8e4de'}>
+                          🗑️ Delete
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
