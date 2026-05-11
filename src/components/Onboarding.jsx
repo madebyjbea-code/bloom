@@ -328,12 +328,7 @@ export default function Onboarding({ onComplete }) {
 
     setCollectedScores(newScores);
 
-    // Show reveal after question 4 (index 3)
-    if (current === 3) {
-      calculateArchetypePreview();
-      trackQuizEvent('archetype_revealed');
-      setPhase('reveal');
-    } else if (current < QUESTIONS.length - 1) {
+    if (current < QUESTIONS.length - 1) {
       setCurrent(current + 1);
       // Track next question view
       trackQuizEvent('question_viewed', { 
@@ -341,11 +336,40 @@ export default function Onboarding({ onComplete }) {
         question_text: QUESTIONS[current + 1]?.text 
       });
     } else {
-      // All 13 questions complete - go to name entry
+      // All 13 questions complete - calculate final archetype and show reveal
       trackQuizEvent('quiz_completed', {
         total_questions: QUESTIONS.length
       });
-      setPhase('name');
+      trackQuizEvent('archetype_revealed');
+      
+      // Calculate full archetype from ALL collected scores
+      const s = {
+        chrono: (newScores.chrono || ['bear'])[0],
+        level: (newScores.level || ['foundation'])[0],
+        activity: (newScores.activity || ['sedentary'])[0],
+        movTime: (newScores.movTime || ['minimal'])[0],
+        stress: (newScores.stress || ['physical'])[0],
+        nutBarrier: (newScores.nutBarrier || ['time'])[0],
+        stressMgmt: (newScores.stressMgmt || ['occasional'])[0],
+        morning: (newScores.morning || ['gradual'])[0],
+        goals: newScores.goal || ['energy'],
+        drain: newScores.drain || [],
+      };
+
+      const archetypeKey = deriveArchetype(s);
+      const archetype = ARCHETYPES[archetypeKey];
+      const chronotype = ARCHETYPE_CHRONO[archetypeKey] || s.chrono;
+
+      // Save to Zustand for ProgramReveal to display
+      setUser({
+        archetypeKey,
+        archetypeName: archetype.name,
+        archetypeIcon: archetype.icon,
+        chronotype,
+        name: 'there', // Temporary name for reveal screen
+      });
+      
+      setPhase('reveal');
     }
   }
 
@@ -742,141 +766,6 @@ export default function Onboarding({ onComplete }) {
   }
 
   // ── RENDER: GATE ─────────────────────────────────────────
-  // ───────────────────────────────────────────────────────
-  // PHASE: REVEAL (Archetype + Chronotype)
-  // ───────────────────────────────────────────────────────
-  if (phase === 'reveal') {
-    // Calculate archetype from collected scores
-    const s = {
-      chrono: (collectedScores.chrono || ['bear'])[0],
-      level: (collectedScores.level || ['foundation'])[0],
-      activity: (collectedScores.activity || ['sedentary'])[0],
-      movTime: (collectedScores.movTime || ['minimal'])[0],
-      stress: (collectedScores.stress || ['physical'])[0],
-      nutBarrier: (collectedScores.nutBarrier || ['time'])[0],
-      stressMgmt: (collectedScores.stressMgmt || ['occasional'])[0],
-      morning: (collectedScores.morning || ['gradual'])[0],
-      goals: collectedScores.goal || ['energy'],
-      drain: collectedScores.drain || [],
-    };
-
-    const archetypeKey = deriveArchetype(s);
-    const archetype = ARCHETYPES[archetypeKey];
-    const chronotype = ARCHETYPE_CHRONO[archetypeKey] || s.chrono;
-
-    const chronoMap = {
-      lion: { name: 'Lion', icon: '🦁', desc: 'Early riser, peak morning energy' },
-      bear: { name: 'Bear', icon: '🐻', desc: 'Standard rhythm, midday peak' },
-      wolf: { name: 'Wolf', icon: '🐺', desc: 'Night owl, evening energy' },
-      dolphin: { name: 'Dolphin', icon: '🐬', desc: 'Irregular sleeper, variable energy' },
-    };
-    const chronoInfo = chronoMap[chronotype] || chronoMap.bear;
-
-    return (
-      <div style={styles.page}>
-        <div style={styles.container}>
-          <div style={styles.logoBar}>
-            <span style={styles.logo}>well with j bea</span>
-          </div>
-
-          {/* Archetype Reveal */}
-          <div style={{
-            background: 'linear-gradient(135deg, #f7f3ed 0%, #e8e4de 100%)',
-            borderRadius: 24,
-            padding: '48px 32px',
-            textAlign: 'center',
-            marginBottom: 32,
-            border: '2px solid var(--sage-light)'
-          }}>
-            <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1.5, color: 'var(--sage-dark)', marginBottom: 16 }}>
-              Your Wellness Archetype
-            </div>
-            
-            <div style={{ fontSize: 64, marginBottom: 16 }}>
-              {archetype.icon}
-            </div>
-            
-            <h1 style={{
-              fontFamily: 'Instrument Serif, serif',
-              fontSize: 32,
-              fontWeight: 400,
-              color: '#1a1a1a',
-              marginBottom: 12
-            }}>
-              {archetype.name}
-            </h1>
-
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              background: 'white',
-              padding: '8px 16px',
-              borderRadius: 24,
-              fontSize: 14,
-              color: '#555',
-              marginTop: 16
-            }}>
-              <span style={{ fontSize: 20 }}>{chronoInfo.icon}</span>
-              <span><strong>{chronoInfo.name}</strong> Chronotype</span>
-            </div>
-
-            <p style={{ fontSize: 14, color: '#777', marginTop: 12, fontStyle: 'italic' }}>
-              {chronoInfo.desc}
-            </p>
-          </div>
-
-          {/* What's Next */}
-          <div style={styles.qCard}>
-            <h3 style={{
-              fontFamily: 'Instrument Serif, serif',
-              fontSize: 20,
-              fontWeight: 400,
-              color: '#1a1a1a',
-              marginBottom: 16
-            }}>
-              Your Personalized Program Includes:
-            </h3>
-
-            {[
-              '📋 4-week habit program tailored to your archetype',
-              '⏱ Guided routines with step-by-step timers',
-              '🔬 Science-backed habits for your biology',
-              '👥 Private Spring cohort community',
-              '🌍 Track your environmental impact',
-            ].map(item => (
-              <div key={item} style={{
-                display: 'flex',
-                gap: 12,
-                alignItems: 'flex-start',
-                fontSize: 14,
-                color: '#555',
-                marginBottom: 12,
-                padding: '8px 0'
-              }}>
-                <span style={{ fontSize: 18, flexShrink: 0 }}>{item.split(' ')[0]}</span>
-                <span>{item.split(' ').slice(1).join(' ')}</span>
-              </div>
-            ))}
-
-            <button
-              onClick={() => {
-                trackQuizEvent('paywall_encountered');
-                setPhase('gate');
-              }}
-              style={{
-                ...styles.btnPrimary,
-                marginTop: 24
-              }}
-            >
-              Unlock your personalized routine →
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
 
   // ───────────────────────────────────────────────────────────
   // PHASE: REVEAL (Archetype Reveal)
