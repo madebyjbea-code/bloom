@@ -275,11 +275,11 @@ function SustainUnlockModal({ onClose }) {
         <div style={{fontSize:48,marginBottom:16}}>🌟</div>
         <h2 style={{fontFamily:'Instrument Serif,serif',fontSize:28,marginBottom:12,color:'#1a1a1a'}}>Sustain Mode Unlocked!</h2>
         <p style={{fontSize:15,color:'#5a7a5a',lineHeight:1.7,marginBottom:24}}>
-          You've completed the 4-week Spring Wellness Program! Your foundation is built. Now it's time to sustain what you've created.
+          You&apos;ve completed the 4-week Spring Wellness Program! Your foundation is built. Now it&apos;s time to sustain what you&apos;ve created.
         </p>
         
         <div style={{background:'white',borderRadius:16,padding:20,marginBottom:24,textAlign:'left'}}>
-          <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:1,color:'#888',marginBottom:14}}>What's Next</div>
+          <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:1,color:'#888',marginBottom:14}}>What&apos;s Next</div>
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
             {[
               {icon:'✅',text:'Keep tracking your Week 4 habits — they\'re your core stack now'},
