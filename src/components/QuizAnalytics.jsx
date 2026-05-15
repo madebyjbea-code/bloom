@@ -12,9 +12,6 @@ export default function QuizAnalytics() {
     q2: 0,
     q3: 0,
     q4: 0,
-    archetype_revealed: 0,
-    paywall_hit: 0,
-    paywall_converted: 0,
     q5: 0,
     q6: 0,
     q7: 0,
@@ -25,6 +22,9 @@ export default function QuizAnalytics() {
     q12: 0,
     q13: 0,
     completed: 0,
+    archetype_revealed: 0,
+    paywall_hit: 0,
+    paywall_converted: 0,
   });
   const [uniqueSessions, setUniqueSessions] = useState(0);
 
@@ -64,10 +64,10 @@ export default function QuizAnalytics() {
         started: 0,
         q1: 0, q2: 0, q3: 0, q4: 0, q5: 0, q6: 0, q7: 0,
         q8: 0, q9: 0, q10: 0, q11: 0, q12: 0, q13: 0,
+        completed: 0,
         archetype_revealed: 0,
         paywall_hit: 0,
         paywall_converted: 0,
-        completed: 0,
       };
 
       // Count by session (each session counted once per milestone)
@@ -79,10 +79,10 @@ export default function QuizAnalytics() {
           sessionMilestones[sid] = {
             started: false,
             questions: new Set(),
+            completed: false,
             archetype_revealed: false,
             paywall_hit: false,
             paywall_converted: false,
-            completed: false,
           };
         }
 
@@ -90,14 +90,14 @@ export default function QuizAnalytics() {
           sessionMilestones[sid].started = true;
         } else if (e.event_type === 'question_viewed' && e.question_number) {
           sessionMilestones[sid].questions.add(e.question_number);
+        } else if (e.event_type === 'quiz_completed') {
+          sessionMilestones[sid].completed = true;
         } else if (e.event_type === 'archetype_revealed') {
           sessionMilestones[sid].archetype_revealed = true;
         } else if (e.event_type === 'paywall_encountered') {
           sessionMilestones[sid].paywall_hit = true;
         } else if (e.event_type === 'paywall_conversion') {
           sessionMilestones[sid].paywall_converted = true;
-        } else if (e.event_type === 'quiz_completed') {
-          sessionMilestones[sid].completed = true;
         }
       });
 
@@ -117,10 +117,10 @@ export default function QuizAnalytics() {
         if (s.questions.has(11)) counts.q11++;
         if (s.questions.has(12)) counts.q12++;
         if (s.questions.has(13)) counts.q13++;
+        if (s.completed) counts.completed++;
         if (s.archetype_revealed) counts.archetype_revealed++;
         if (s.paywall_hit) counts.paywall_hit++;
         if (s.paywall_converted) counts.paywall_converted++;
-        if (s.completed) counts.completed++;
       });
 
       setFunnel(counts);
@@ -186,6 +186,22 @@ export default function QuizAnalytics() {
             <FunnelBar label="Q2 – Energy Patterns" count={funnel.q2} total={funnel.started} />
             <FunnelBar label="Q3 – Morning Start" count={funnel.q3} total={funnel.started} />
             <FunnelBar label="Q4 – Nutrition Barriers" count={funnel.q4} total={funnel.started} />
+            <FunnelBar label="Q5 – Meal Preference" count={funnel.q5} total={funnel.started} />
+            <FunnelBar label="Q6 – Daily Schedule" count={funnel.q6} total={funnel.started} />
+            <FunnelBar label="Q7 – Movement Time" count={funnel.q7} total={funnel.started} />
+            <FunnelBar label="Q8 – Activity Level" count={funnel.q8} total={funnel.started} />
+            <FunnelBar label="Q9 – Stress Response" count={funnel.q9} total={funnel.started} />
+            <FunnelBar label="Q10 – Stress Management" count={funnel.q10} total={funnel.started} />
+            <FunnelBar label="Q11 – Current State" count={funnel.q11} total={funnel.started} />
+            <FunnelBar label="Q12 – Wellness Routine" count={funnel.q12} total={funnel.started} />
+            <FunnelBar label="Q13 – Spring Goals" count={funnel.q13} total={funnel.started} />
+            
+            <FunnelBar 
+              label="✅ Quiz Completed" 
+              count={funnel.completed} 
+              total={funnel.started} 
+              success
+            />
             
             <FunnelBar 
               label="✨ Archetype Revealed" 
@@ -211,31 +227,18 @@ export default function QuizAnalytics() {
               highlight 
               success
             />
-
-            <FunnelBar label="Q5 – Meal Preference" count={funnel.q5} total={funnel.started} />
-            <FunnelBar label="Q6 – Daily Schedule" count={funnel.q6} total={funnel.started} />
-            <FunnelBar label="Q7 – Movement Time" count={funnel.q7} total={funnel.started} />
-            <FunnelBar label="Q8 – Activity Level" count={funnel.q8} total={funnel.started} />
-            <FunnelBar label="Q9 – Stress Response" count={funnel.q9} total={funnel.started} />
-            <FunnelBar label="Q10 – Stress Management" count={funnel.q10} total={funnel.started} />
-            <FunnelBar label="Q11 – Current State" count={funnel.q11} total={funnel.started} />
-            <FunnelBar label="Q12 – Wellness Routine" count={funnel.q12} total={funnel.started} />
-            <FunnelBar label="Q13 – Spring Goals" count={funnel.q13} total={funnel.started} />
-            
-            <FunnelBar 
-              label="✅ Quiz Completed" 
-              count={funnel.completed} 
-              total={funnel.started} 
-              success
-            />
           </div>
 
           <div style={styles.insights}>
             <h3 style={styles.sectionTitle}>Key Insights</h3>
             <ul style={styles.insightsList}>
               <li>
-                <strong>{calcRate(funnel.archetype_revealed, funnel.q1)}</strong> of people who answer Q1 
-                see their archetype reveal
+                <strong>{calcRate(funnel.completed, funnel.q1)}</strong> of people who answer Q1 
+                complete all 13 questions
+              </li>
+              <li>
+                <strong>{calcRate(funnel.archetype_revealed, funnel.completed)}</strong> of people who complete 
+                the quiz see their archetype reveal
               </li>
               <li>
                 <strong>{calcRate(funnel.paywall_hit, funnel.archetype_revealed)}</strong> of people who see 
@@ -245,18 +248,6 @@ export default function QuizAnalytics() {
                 <strong>{paywallConversionRate}</strong> of people who hit the paywall 
                 enter a valid access code
               </li>
-              {funnel.paywall_converted > 0 && (
-                <li>
-                  <strong>{calcRate(funnel.completed, funnel.paywall_converted)}</strong> of 
-                  people who pass the paywall complete the entire quiz
-                </li>
-              )}
-              {funnel.archetype_revealed - funnel.paywall_hit > 0 && (
-                <li style={styles.warningInsight}>
-                  ⚠️ <strong>{funnel.archetype_revealed - funnel.paywall_hit}</strong> people saw their archetype 
-                  but did not trigger the paywall (possible tracking gap)
-                </li>
-              )}
             </ul>
           </div>
         </>

@@ -676,14 +676,10 @@ export default function Onboarding({ onComplete }) {
         return;
       }
 
-      // Valid — save code and continue quiz
+      // Valid — save code and continue to name phase
       setAccessCode(code);
-      trackQuizEvent('paywall_conversion', {
-        code_used: code,
-        question_stopped_at: 4
-      });
-      setCurrent(4); // jump to question 5
-      setPhase('quiz');
+      trackQuizEvent('paywall_conversion');
+      setPhase('name');
     } catch (err) {
       console.error(err);
       setGateError('Something went wrong. Please try again.');
