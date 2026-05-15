@@ -33,8 +33,15 @@ export default function QuizAnalytics() {
   }, [timeframe]);
 
   async function loadAnalytics() {
+    console.log('loadAnalytics called, timeframe:', timeframe);
     setLoading(true);
     try {
+      // Check current user
+      const { data: { user } } = await supabase.auth.getUser();
+      console.log('Current user ID:', user?.id);
+      console.log('Admin UUID:', '3f5a0efe-6932-4821-b7fa-334a8f0bffc3');
+      console.log('Is admin?', user?.id === '3f5a0efe-6932-4821-b7fa-334a8f0bffc3');
+
       // Calculate date filter
       let dateFilter = null;
       if (timeframe === '7d') {
@@ -42,6 +49,8 @@ export default function QuizAnalytics() {
       } else if (timeframe === '30d') {
         dateFilter = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
       }
+
+      console.log('Date filter:', dateFilter || 'none (all time)');
 
       // Build query
       let query = supabase
@@ -54,7 +63,19 @@ export default function QuizAnalytics() {
 
       const { data: events, error } = await query;
 
-      if (error) throw error;
+      if (error) {
+        console.error('Analytics query error:', error);
+        throw error;
+      }
+
+      console.log('Analytics loaded:', {
+        totalEvents: events?.length || 0,
+        uniqueSessions: new Set(events?.map(e => e.session_id) || []).size,
+        eventTypes: events?.reduce((acc, e) => {
+          acc[e.event_type] = (acc[e.event_type] || 0) + 1;
+          return acc;
+        }, {})
+      });
 
       // Calculate metrics
       const sessionSet = new Set(events.map(e => e.session_id));
