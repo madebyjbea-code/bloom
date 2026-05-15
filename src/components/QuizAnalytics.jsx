@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import useStore from '../lib/store';
 
 export default function QuizAnalytics() {
   const [loading, setLoading] = useState(true);
@@ -28,20 +29,27 @@ export default function QuizAnalytics() {
   });
   const [uniqueSessions, setUniqueSessions] = useState(0);
 
+  // Get userId from Zustand to verify admin access
+  const userId = useStore(s => s.userId);
+  const ADMIN_USER_ID = '3f5a0efe-6932-4821-b7fa-334a8f0bffc3';
+  const isAdmin = userId === ADMIN_USER_ID;
+
   useEffect(() => {
     loadAnalytics();
   }, [timeframe]);
 
   async function loadAnalytics() {
     console.log('loadAnalytics called, timeframe:', timeframe);
+    
+    // Block if not admin
+    if (!isAdmin) {
+      console.log('Access denied: Not admin');
+      setLoading(false);
+      return;
+    }
+    
     setLoading(true);
     try {
-      // Check current user
-      const { data: { user } } = await supabase.auth.getUser();
-      console.log('Current user ID:', user?.id);
-      console.log('Admin UUID:', '3f5a0efe-6932-4821-b7fa-334a8f0bffc3');
-      console.log('Is admin?', user?.id === '3f5a0efe-6932-4821-b7fa-334a8f0bffc3');
-
       // Calculate date filter
       let dateFilter = null;
       if (timeframe === '7d') {
