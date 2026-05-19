@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import useStore from '../lib/store';
+import {useStore} from '../lib/store';
 
 export default function QuizAnalytics() {
   const [loading, setLoading] = useState(true);
