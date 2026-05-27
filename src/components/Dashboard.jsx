@@ -12,6 +12,8 @@ import TabRoadmap from './TabRoadmap';
 import TabBadHabits from './TabBadHabits';
 import BadHabitModal from './BadHabitModal';
 import QuizAnalytics from './QuizAnalytics';
+import TabHabitReview from './TabHabitReview';
+import TabRoutinesEnhanced from './TabRoutines';
 
 const ROUTINES = {
   morning: {
@@ -72,10 +74,10 @@ const NAV = [
   { key: 'dashboard', icon: '🌿', label: 'Dashboard' },
   { key: 'habits',    icon: '✅', label: 'Habits' },
   { key: 'routines',  icon: '⏱',  label: 'Routines' },
+  { key: 'science',   icon: '🔬', label: 'Habit Science' },
   { key: 'planner',   icon: '📅', label: 'Planner' },
   { key: 'planet',    icon: '🌍', label: 'Planet' },
   { key: 'community', icon: '👥', label: 'Community' },
-  { key: 'badhabits', icon: '🚫', label: 'Quit Habits' },
   { key: 'roadmap',   icon: '🗺️',  label: 'Roadmap' },
   { key: 'analytics', icon: '📊', label: 'Analytics', adminOnly: true },
 ];
@@ -383,6 +385,7 @@ export default function Dashboard() {
   const checkDailyReset = useStore(s=>s.checkDailyReset);
   const checkBadHabitDailyReset = useStore(s=>s.checkBadHabitDailyReset);
   const applyDailyDecay  = useStore(s=>s.applyDailyDecay);
+  const lastDecayDate    = useStore(s=>s.lastDecayDate);
 
   // Avatar customisation fields (for DiceBear URL)
   const avatarSkin      = useStore(s=>s.avatarSkin);
@@ -593,6 +596,8 @@ export default function Dashboard() {
       }
     } catch(e){ console.error('loadBadHabitsFromDb', e); }
   }
+
+  async function updateStreak(habitKey, completing){
     if(!userId) return;
     const today=new Date().toISOString().split('T')[0];
     const yesterday=new Date(Date.now()-86400000).toISOString().split('T')[0];
@@ -878,25 +883,27 @@ export default function Dashboard() {
   };
 
   const AvatarCard=()=>{
-    // Build DiceBear URL from store fields
-    const params = new URLSearchParams({
-      seed: name || 'wellness',
-      skinColor: avatarSkin,
-      hair: avatarHair,
-      hairColor: avatarHairColor,
-      eyes: avatarEyes,
-      mouth: avatarMouth,
-      backgroundColor: avatarBg,
-      ...(avatarAccessory ? { accessories: avatarAccessory, accessoriesColor: '000000' } : {}),
-    });
-    const dicebearUrl = `https://api.dicebear.com/9.x/personas/svg?${params.toString()}`;
+    // Build DiceBear URL — params must match actual personas schema values
+    const p = new URLSearchParams();
+    p.set('seed', name || 'wellness');
+    p.set('skinColor', avatarSkin);
+    p.set('hair', avatarHair);
+    p.set('hairColor', avatarHairColor);
+    p.set('eyes', avatarEyes);
+    p.set('mouth', avatarMouth);
+    p.set('backgroundColor', avatarBg);
+    p.set('body', avatarAccessory || 'rounded');
+    p.set('facialHairProbability', '0');
+    const dicebearUrl = `https://api.dicebear.com/9.x/personas/svg?${p.toString()}`;
 
     return(
     <div style={{background:'linear-gradient(160deg,#e8f0e8,#f0ede8)',border:'1.5px solid #b5ceb5',borderRadius:20,padding:22,textAlign:'center'}}>
       <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:16}}>Your Companion</div>
       <div style={{position:'relative',width:130,height:130,margin:'0 auto 16px'}}>
         <div style={{width:130,height:130,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',display:'flex',alignItems:'center',justifyContent:'center',border:'3px solid rgba(255,255,255,0.7)',boxShadow:'0 8px 28px rgba(90,122,90,0.18)',animation:'breathe 4s ease-in-out infinite',cursor:'pointer',position:'relative',overflow:'hidden'}}>
-          <img src={dicebearUrl} alt="Your avatar" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>{e.currentTarget.style.display='none';e.currentTarget.parentElement.innerHTML+='<span style="font-size:54px">🧑‍🌿</span>';}}/>
+          <object type="image/svg+xml" data={dicebearUrl} style={{width:'100%',height:'100%',objectFit:'cover',pointerEvents:'none'}}>
+            <span style={{fontSize:54}}>🧑‍🌿</span>
+          </object>
           {equipped&&<div style={{position:'absolute',top:-6,right:-2,fontSize:18}}>{SHOP_ITEMS.find(i=>i.key===equipped.item_key)?.icon}</div>}
         </div>
         <div style={{position:'absolute',bottom:4,right:4,background:'#d4af6a',color:'white',fontSize:11,fontWeight:700,padding:'3px 8px',borderRadius:8}}>Lv.{level}</div>
@@ -907,7 +914,7 @@ export default function Dashboard() {
       <button onClick={()=>setTab('settings')} style={{fontSize:11,color:'#8aad8a',background:'transparent',border:'1px solid #b5ceb5',borderRadius:99,padding:'4px 12px',cursor:'pointer',fontFamily:'DM Sans,sans-serif',fontWeight:600,marginBottom:12}}>
         ✏️ Customise avatar
       </button>
-      {[{label:'❤️ Health',val:health,fill:'linear-gradient(90deg,#70c070,#4ea84e)'},{label:'📋 Today',val:pct,fill:'linear-gradient(90deg,#8aad8a,#5a7a5a)'}].map(b=>(
+      {[{label:'❤️ Health',val:health,fill:health>60?'linear-gradient(90deg,#70c070,#4ea84e)':health>30?'linear-gradient(90deg,#e8b84a,#d4a030)':'linear-gradient(90deg,#e07070,#c04040)'},{label:'📋 Today',val:pct,fill:'linear-gradient(90deg,#8aad8a,#5a7a5a)'}].map(b=>(
         <div key={b.label} style={{marginBottom:8}}>
           <div style={{display:'flex',justifyContent:'space-between',fontSize:11,fontWeight:500,marginBottom:3}}><span>{b.label}</span><span>{b.val}%</span></div>
           <div style={{height:6,background:'#e8d9c4',borderRadius:99,overflow:'hidden'}}><div style={{height:'100%',width:`${b.val}%`,background:b.fill,borderRadius:99,transition:'width 0.8s'}}/></div>
@@ -924,6 +931,11 @@ export default function Dashboard() {
       <div style={{background:'#e8d9c4',border:'1px solid #c4a882',borderRadius:10,padding:'8px 10px',fontSize:10,color:'#7a6040',marginTop:12,textAlign:'left',lineHeight:1.5}}>
         🔬 Lally et al. (2010): habits form in 18–254 days — consistency is the key variable.
       </div>
+      {isAdmin && lastDecayDate && (
+        <div style={{marginTop:8,fontSize:9,color:'#bbb',textAlign:'center'}}>
+          🕐 Decay last ran: {lastDecayDate}
+        </div>
+      )}
     </div>
   );};
 
@@ -1194,6 +1206,9 @@ export default function Dashboard() {
     <div style={{padding:'22px 26px',maxWidth:900}}>
       <HabitsGrid/>
       <div style={{marginTop:18}}><ProgressStats/></div>
+      <div style={{marginTop:24}}>
+        <TabBadHabits onAdd={()=>setBadHabitOpen(true)} onToast={toast}/>
+      </div>
     </div>
   );
 
@@ -1476,26 +1491,81 @@ export default function Dashboard() {
   const TabSettings=()=>{
     const setUser = useStore(s=>s.setUser);
 
-    // DiceBear options — free, no extra packages
-    const SKIN_OPTIONS   = [{v:'light',l:'Light'},{v:'lightBrown',l:'Light Brown'},{v:'brown',l:'Brown'},{v:'darkBrown',l:'Dark Brown'},{v:'black',l:'Deep'},{v:'wheat',l:'Wheat'}];
-    const HAIR_OPTIONS   = [{v:'short01',l:'Short'},{v:'short02',l:'Short Textured'},{v:'long01',l:'Long Straight'},{v:'long02',l:'Long Wavy'},{v:'curly01',l:'Curly'},{v:'bun',l:'Bun'},{v:'afro',l:'Afro'},{v:'bald',l:'Shaved'}];
-    const HAIR_COLORS    = [{v:'brown',l:'Brown'},{v:'black',l:'Black'},{v:'blonde',l:'Blonde'},{v:'red',l:'Red'},{v:'gray',l:'Grey'},{v:'auburn',l:'Auburn'}];
-    const EYE_OPTIONS    = [{v:'variant01',l:'Classic'},{v:'variant02',l:'Round'},{v:'variant03',l:'Almond'},{v:'variant04',l:'Wide'}];
-    const MOUTH_OPTIONS  = [{v:'happy01',l:'Smile'},{v:'happy02',l:'Big Smile'},{v:'sad01',l:'Sad'},{v:'nervous01',l:'Nervous'}];
-    const BG_OPTIONS     = [{v:'b6e3f4',l:'Sky Blue'},{v:'c0aede',l:'Lavender'},{v:'d1f4d0',l:'Mint'},{v:'ffd5dc',l:'Rose'},{v:'ffdfba',l:'Peach'},{v:'f0ece6',l:'Cream'}];
-    const ACC_OPTIONS    = [{v:null,l:'None'},{v:'glasses',l:'Glasses'},{v:'sunglasses',l:'Sunnies'},{v:'earrings',l:'Earrings'}];
+    // DiceBear personas — correct parameter values from schema
+    const SKIN_OPTIONS   = [
+      {v:'eeb4a4',l:'Light'},
+      {v:'e5a07e',l:'Light Brown'},
+      {v:'d78774',l:'Brown'},
+      {v:'b16a5b',l:'Medium'},
+      {v:'92594b',l:'Deep Brown'},
+      {v:'623d36',l:'Deep'},
+    ];
+    const HAIR_OPTIONS   = [
+      {v:'long',l:'Long'},
+      {v:'extraLong',l:'Extra Long'},
+      {v:'bobCut',l:'Bob'},
+      {v:'bobBangs',l:'Bob Bangs'},
+      {v:'curly',l:'Curly'},
+      {v:'curlyBun',l:'Curly Bun'},
+      {v:'pigtails',l:'Pigtails'},
+      {v:'straightBun',l:'Straight Bun'},
+      {v:'shortCombover',l:'Short'},
+      {v:'buzzcut',l:'Buzzcut'},
+      {v:'fade',l:'Fade'},
+      {v:'bald',l:'Bald'},
+    ];
+    const HAIR_COLORS    = [
+      {v:'362c47',l:'Black'},
+      {v:'6c4545',l:'Dark Brown'},
+      {v:'e15c66',l:'Auburn'},
+      {v:'f27d65',l:'Red'},
+      {v:'f29c65',l:'Blonde'},
+      {v:'dee1f5',l:'Silver'},
+    ];
+    const EYE_OPTIONS    = [
+      {v:'open',l:'Open'},
+      {v:'happy',l:'Happy'},
+      {v:'wink',l:'Wink'},
+      {v:'sleep',l:'Tired'},
+      {v:'glasses',l:'Glasses'},
+      {v:'sunglasses',l:'Sunnies'},
+    ];
+    const MOUTH_OPTIONS  = [
+      {v:'smile',l:'Smile'},
+      {v:'bigSmile',l:'Big Smile'},
+      {v:'smirk',l:'Smirk'},
+      {v:'lips',l:'Lips'},
+      {v:'frown',l:'Frown'},
+      {v:'surprise',l:'Surprise'},
+    ];
+    const BG_OPTIONS     = [
+      {v:'b6e3f4',l:'Sky Blue'},
+      {v:'c0aede',l:'Lavender'},
+      {v:'d1f4d0',l:'Mint'},
+      {v:'ffd5dc',l:'Rose'},
+      {v:'ffdfba',l:'Peach'},
+      {v:'f0ece6',l:'Cream'},
+    ];
+    // Note: accessories in personas = eyes field (glasses/sunglasses already in eyes)
+    // body controls the shape
+    const BODY_OPTIONS   = [
+      {v:'rounded',l:'Rounded'},
+      {v:'squared',l:'Squared'},
+      {v:'small',l:'Small'},
+      {v:'checkered',l:'Patterned'},
+    ];
 
-    const params = new URLSearchParams({
-      seed: name || 'wellness',
-      skinColor: avatarSkin,
-      hair: avatarHair,
-      hairColor: avatarHairColor,
-      eyes: avatarEyes,
-      mouth: avatarMouth,
-      backgroundColor: avatarBg,
-      ...(avatarAccessory ? { accessories: avatarAccessory, accessoriesColor: '000000' } : {}),
-    });
-    const dicebearUrl = `https://api.dicebear.com/9.x/personas/svg?${params.toString()}`;
+    const p2 = new URLSearchParams();
+    p2.set('seed', name || 'wellness');
+    p2.set('skinColor', avatarSkin);
+    p2.set('hair', avatarHair);
+    p2.set('hairColor', avatarHairColor);
+    p2.set('eyes', avatarEyes);
+    p2.set('mouth', avatarMouth);
+    p2.set('backgroundColor', avatarBg);
+    p2.set('body', avatarAccessory || 'rounded');
+    p2.set('facialHairProbability', '0');
+    const dicebearUrl = `https://api.dicebear.com/9.x/personas/svg?${p2.toString()}`;
 
     function OptionRow({ label, options, current, field }) {
       return (
@@ -1517,7 +1587,7 @@ export default function Dashboard() {
     <div style={{padding:'22px 26px',maxWidth:680}}>
       <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:24,padding:26,display:'flex',gap:18,alignItems:'center',marginBottom:16,flexWrap:'wrap'}}>
         <div style={{width:64,height:64,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',overflow:'hidden',border:'3px solid rgba(255,255,255,0.7)',flexShrink:0}}>
-          <img src={dicebearUrl} alt="avatar" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+          <object type="image/svg+xml" data={dicebearUrl} style={{width:'100%',height:'100%',pointerEvents:'none'}}><span>🧑‍🌿</span></object>
         </div>
         <div style={{flex:1}}>
           <div style={{fontFamily:'Instrument Serif,serif',fontSize:22,color:'#1a1a1a',marginBottom:6}}>{name}</div>
@@ -1539,7 +1609,7 @@ export default function Dashboard() {
         <div style={{display:'flex',gap:20,alignItems:'flex-start',flexWrap:'wrap'}}>
           {/* Live preview */}
           <div style={{width:120,height:120,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',overflow:'hidden',border:'3px solid #b5ceb5',flexShrink:0,alignSelf:'center'}}>
-            <img src={dicebearUrl} alt="preview" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+            <object type="image/svg+xml" data={dicebearUrl} style={{width:'100%',height:'100%',pointerEvents:'none'}}><span style={{fontSize:40}}>🧑‍🌿</span></object>
           </div>
           <div style={{flex:1,minWidth:240}}>
             <OptionRow label="Skin Tone" options={SKIN_OPTIONS} current={avatarSkin} field="avatarSkin"/>
@@ -1547,7 +1617,7 @@ export default function Dashboard() {
             <OptionRow label="Hair Colour" options={HAIR_COLORS} current={avatarHairColor} field="avatarHairColor"/>
             <OptionRow label="Eyes" options={EYE_OPTIONS} current={avatarEyes} field="avatarEyes"/>
             <OptionRow label="Mouth" options={MOUTH_OPTIONS} current={avatarMouth} field="avatarMouth"/>
-            <OptionRow label="Accessories" options={ACC_OPTIONS} current={avatarAccessory} field="avatarAccessory"/>
+            <OptionRow label="Body Shape" options={BODY_OPTIONS} current={avatarAccessory || 'rounded'} field="avatarAccessory"/>
             <OptionRow label="Background" options={BG_OPTIONS} current={avatarBg} field="avatarBg"/>
           </div>
         </div>
@@ -1696,6 +1766,7 @@ export default function Dashboard() {
     community:{t:'Community 👥',s:'Spring Wellness Program cohort'},
     settings:{t:'Profile & Settings ⚙️',s:`${arch.icon} ${arch.name} · ${lvMap[lvl]||'Building'}`},
     badhabits:{t:'Quit Habits 🚫',s:'Track what you\'re reducing · slips cost health · awareness is the first step'},
+    science:{t:'Habit Science 🔬',s:'The research behind every habit in your program'},
     roadmap:{t:'Roadmap 🗺️',s:"Vote for features · suggest ideas · see what's coming"},
     analytics:{t:'Quiz Analytics 📊',s:'Conversion funnel & drop-off analysis'},
   };
@@ -1709,12 +1780,16 @@ export default function Dashboard() {
         <div style={{overflowX:'hidden'}}>
           {tab==='dashboard'  && <TabDashboard/>}
           {tab==='habits'     && <TabHabits/>}
-          {tab==='routines'   && <TabRoutines/>}
+          {tab==='science'    && <TabHabitReview habits={habits} customHabits={customHabits}/>}
+          {tab==='routines'   && <TabRoutinesEnhanced
+              routineLog={routineLog} setRoutineLog={setRoutineLog}
+              routineFreqs={routineFreqs} setRoutineFreqs={setRoutineFreqs}
+              coins={coins} userId={userId} toast={toast} allHabits={allHabits}
+            />}
           {tab==='planner'    && <TabPlanner/>}
           {tab==='planet'     && <TabPlanet/>}
           {tab==='community'  && <TabCommunity/>}
           {tab==='settings'   && <TabSettings/>}
-          {tab==='badhabits'  && <TabBadHabits onAdd={()=>setBadHabitOpen(true)} onToast={toast}/>}
           {tab==='roadmap'    && <TabRoadmap onFeedback={()=>setFeedbackOpen(true)}/>}
           {tab==='analytics'  && isAdmin && <QuizAnalytics/>}
         </div>

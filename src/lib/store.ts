@@ -117,7 +117,7 @@ type StoreState = {
   setRestDaysThisWeek: (count: number, weekStart: string) => void;
 
   // Actions — health decay
-  applyDailyDecay: () => { decayed: boolean; newHealth: number };
+  applyDailyDecay: (userId?: string) => Promise<{ decayed: boolean; newHealth: number; totalDecay?: number }>;
 
   // Reset
   reset: () => void;
@@ -132,12 +132,12 @@ const defaults: Partial<StoreState> = {
   avatarEmoji: '🦔',
 
   // Avatar customisation defaults
-  avatarSkin: 'light',
-  avatarHair: 'short01',
-  avatarHairColor: 'brown',
-  avatarEyes: 'variant01',
-  avatarMouth: 'happy01',
-  avatarAccessory: null,
+  avatarSkin: 'eeb4a4',
+  avatarHair: 'shortCombover',
+  avatarHairColor: '6c4545',
+  avatarEyes: 'open',
+  avatarMouth: 'smile',
+  avatarAccessory: 'rounded',
   avatarBg: 'b6e3f4',
 
   archetypeKey: null,
@@ -285,23 +285,36 @@ export const useStore = create<StoreState>()(
       },
 
       // ── Health decay ─────────────────────────────────────
-      // Call this on app load. Returns whether decay was applied and the new health value.
-      // The caller (Dashboard) is responsible for persisting to user_stats in Supabase.
-      applyDailyDecay: () => {
-        const { lastDecayDate, isRestDayToday, health } = get();
+      // Runs once per day on app load.
+      // -2 baseline + yesterday's bad habit penalties, capped at -10 total.
+      // Rest days skip decay entirely.
+      // Caller (Dashboard) persists newHealth to Supabase.
+      applyDailyDecay: async (userId?: string) => {
+        const { lastDecayDate, isRestDayToday, health, badHabits, badHabitLogsToday } = get();
         const today = new Date().toISOString().split('T')[0];
 
-        // Already decayed today, or it's a rest day — skip
+        // Already decayed today or rest day — skip
         if (lastDecayDate === today || isRestDayToday) {
           return { decayed: false, newHealth: health };
         }
 
-        const BASELINE_DECAY = 2;  // per day, earned back by completing habits
-        const FLOOR = 10;          // health never drops below this
+        const BASELINE_DECAY = 2;
+        const FLOOR = 10;
+        const MAX_DECAY = 10; // cap so even a terrible day can't bottom out health instantly
 
-        const newHealth = Math.max(FLOOR, health - BASELINE_DECAY);
+        // Sum penalties for any bad habits that failed yesterday
+        // (badHabitLogsToday still holds yesterday's logs until checkBadHabitDailyReset clears them)
+        const badHabitPenalty = Object.entries(badHabitLogsToday)
+          .filter(([, log]) => (log as { failed: boolean }).failed)
+          .reduce((sum, [key]) => {
+            const habit = badHabits.find(h => h.key === key);
+            return sum + (habit?.healthPenalty || 0);
+          }, 0);
+
+        const totalDecay = Math.min(BASELINE_DECAY + badHabitPenalty, MAX_DECAY);
+        const newHealth = Math.max(FLOOR, health - totalDecay);
         set({ health: newHealth, lastDecayDate: today });
-        return { decayed: true, newHealth };
+        return { decayed: true, newHealth, totalDecay };
       },
 
       // ── Reset ────────────────────────────────────────────
