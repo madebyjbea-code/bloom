@@ -9,6 +9,8 @@ import ProgressStats from './ProgressStats';
 import CustomHabitModal from './CustomHabitModal';
 import FeedbackModal from './FeedbackModal';
 import TabRoadmap from './TabRoadmap';
+import TabBadHabits from './TabBadHabits';
+import BadHabitModal from './BadHabitModal';
 import QuizAnalytics from './QuizAnalytics';
 
 const ROUTINES = {
@@ -73,6 +75,7 @@ const NAV = [
   { key: 'planner',   icon: '📅', label: 'Planner' },
   { key: 'planet',    icon: '🌍', label: 'Planet' },
   { key: 'community', icon: '👥', label: 'Community' },
+  { key: 'badhabits', icon: '🚫', label: 'Quit Habits' },
   { key: 'roadmap',   icon: '🗺️',  label: 'Roadmap' },
   { key: 'analytics', icon: '📊', label: 'Analytics', adminOnly: true },
 ];
@@ -350,6 +353,7 @@ export default function Dashboard() {
   const [streakHistoryHabit, setStreakHistoryHabit] = useState(null);
   const [sustainMode, setSustainMode] = useState(false);
   const [sustainUnlockOpen, setSustainUnlockOpen] = useState(false);
+  const [badHabitOpen, setBadHabitOpen] = useState(false);
 
   const [routine, setRoutine]   = useState(null);
   const [rStep, setRStep]       = useState(0);
@@ -377,6 +381,17 @@ export default function Dashboard() {
   const toggleH       = useStore(s=>s.toggleHabit);
   const customHabits  = useStore(s=>s.customHabits);
   const checkDailyReset = useStore(s=>s.checkDailyReset);
+  const checkBadHabitDailyReset = useStore(s=>s.checkBadHabitDailyReset);
+  const applyDailyDecay  = useStore(s=>s.applyDailyDecay);
+
+  // Avatar customisation fields (for DiceBear URL)
+  const avatarSkin      = useStore(s=>s.avatarSkin);
+  const avatarHair      = useStore(s=>s.avatarHair);
+  const avatarHairColor = useStore(s=>s.avatarHairColor);
+  const avatarEyes      = useStore(s=>s.avatarEyes);
+  const avatarMouth     = useStore(s=>s.avatarMouth);
+  const avatarAccessory = useStore(s=>s.avatarAccessory);
+  const avatarBg        = useStore(s=>s.avatarBg);
 
   const isAdmin = userId === ADMIN_USER_ID;
 
@@ -406,7 +421,8 @@ export default function Dashboard() {
 
   useEffect(()=>{
     checkDailyReset();
-    if(userId){ load(); loadInv(); loadStreaks(); loadWeeklyData(); }
+    checkBadHabitDailyReset();
+    if(userId){ load(); loadInv(); loadStreaks(); loadWeeklyData(); loadBadHabitsFromDb(); }
   },[userId]);
 
   async function load() {
@@ -450,6 +466,12 @@ export default function Dashboard() {
       }
       const {data:st}=await supabase.from('user_stats').select('*').eq('user_id',userId).single();
       if(st) setStats({health:st.health,coins:st.coins,greenEnergy:st.green_energy,level:st.level});
+
+      // Apply nightly health decay (only fires once per day, skipped on rest days)
+      const { decayed, newHealth } = applyDailyDecay();
+      if(decayed){
+        await supabase.from('user_stats').update({ health: newHealth }).eq('user_id', userId);
+      }
       const today=new Date().toISOString().split('T')[0];
       const {data:c}=await supabase.from('habit_completions').select('habit_key').eq('user_id',userId).eq('date',today);
       if(c) c.forEach(x=>{ if(!done.includes(x.habit_key)) toggleH(x.habit_key); });
@@ -546,7 +568,31 @@ export default function Dashboard() {
     }
   }
 
-  async function updateStreak(habitKey, completing){
+  // Load bad habits from DB on mount (Zustand already has them persisted locally,
+  // but this ensures any habits added on another device are synced)
+  async function loadBadHabitsFromDb(){
+    if(!userId) return;
+    try {
+      const {data} = await supabase.from('bad_habits').select('*').eq('user_id', userId);
+      if(data && data.length > 0){
+        const { badHabits: existing } = useStore.getState();
+        data.forEach(row => {
+          const bh = {
+            key: row.key,
+            name: row.name,
+            emoji: row.emoji,
+            type: row.type,
+            unit: row.unit,
+            threshold: row.threshold,
+            healthPenalty: row.health_penalty,
+          };
+          if(!existing.some(h => h.key === row.key)){
+            useStore.getState().addBadHabit(bh);
+          }
+        });
+      }
+    } catch(e){ console.error('loadBadHabitsFromDb', e); }
+  }
     if(!userId) return;
     const today=new Date().toISOString().split('T')[0];
     const yesterday=new Date(Date.now()-86400000).toISOString().split('T')[0];
@@ -831,19 +877,36 @@ export default function Dashboard() {
     );
   };
 
-  const AvatarCard=()=>(
+  const AvatarCard=()=>{
+    // Build DiceBear URL from store fields
+    const params = new URLSearchParams({
+      seed: name || 'wellness',
+      skinColor: avatarSkin,
+      hair: avatarHair,
+      hairColor: avatarHairColor,
+      eyes: avatarEyes,
+      mouth: avatarMouth,
+      backgroundColor: avatarBg,
+      ...(avatarAccessory ? { accessories: avatarAccessory, accessoriesColor: '000000' } : {}),
+    });
+    const dicebearUrl = `https://api.dicebear.com/9.x/personas/svg?${params.toString()}`;
+
+    return(
     <div style={{background:'linear-gradient(160deg,#e8f0e8,#f0ede8)',border:'1.5px solid #b5ceb5',borderRadius:20,padding:22,textAlign:'center'}}>
       <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:16}}>Your Companion</div>
       <div style={{position:'relative',width:130,height:130,margin:'0 auto 16px'}}>
-        <div style={{width:130,height:130,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:54,border:'3px solid rgba(255,255,255,0.7)',boxShadow:'0 8px 28px rgba(90,122,90,0.18)',animation:'breathe 4s ease-in-out infinite',cursor:'pointer',position:'relative'}}>
-          🧑‍🌿
+        <div style={{width:130,height:130,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',display:'flex',alignItems:'center',justifyContent:'center',border:'3px solid rgba(255,255,255,0.7)',boxShadow:'0 8px 28px rgba(90,122,90,0.18)',animation:'breathe 4s ease-in-out infinite',cursor:'pointer',position:'relative',overflow:'hidden'}}>
+          <img src={dicebearUrl} alt="Your avatar" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>{e.currentTarget.style.display='none';e.currentTarget.parentElement.innerHTML+='<span style="font-size:54px">🧑‍🌿</span>';}}/>
           {equipped&&<div style={{position:'absolute',top:-6,right:-2,fontSize:18}}>{SHOP_ITEMS.find(i=>i.key===equipped.item_key)?.icon}</div>}
         </div>
         <div style={{position:'absolute',bottom:4,right:4,background:'#d4af6a',color:'white',fontSize:11,fontWeight:700,padding:'3px 8px',borderRadius:8}}>Lv.{level}</div>
       </div>
       <div style={{fontFamily:'Instrument Serif,serif',fontSize:17,marginBottom:2}}>{name}</div>
       <div style={{fontSize:11,color:'#5a7a5a',marginBottom:3}}>{arch.icon} {arch.name}</div>
-      <div style={{fontSize:11,color:'#888',marginBottom:14}}>{mood}</div>
+      <div style={{fontSize:11,color:'#888',marginBottom:10}}>{mood}</div>
+      <button onClick={()=>setTab('settings')} style={{fontSize:11,color:'#8aad8a',background:'transparent',border:'1px solid #b5ceb5',borderRadius:99,padding:'4px 12px',cursor:'pointer',fontFamily:'DM Sans,sans-serif',fontWeight:600,marginBottom:12}}>
+        ✏️ Customise avatar
+      </button>
       {[{label:'❤️ Health',val:health,fill:'linear-gradient(90deg,#70c070,#4ea84e)'},{label:'📋 Today',val:pct,fill:'linear-gradient(90deg,#8aad8a,#5a7a5a)'}].map(b=>(
         <div key={b.label} style={{marginBottom:8}}>
           <div style={{display:'flex',justifyContent:'space-between',fontSize:11,fontWeight:500,marginBottom:3}}><span>{b.label}</span><span>{b.val}%</span></div>
@@ -862,7 +925,8 @@ export default function Dashboard() {
         🔬 Lally et al. (2010): habits form in 18–254 days — consistency is the key variable.
       </div>
     </div>
-  );
+  );};
+
 
   const HabitsGrid=()=>(
     <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:22}}>
@@ -1409,10 +1473,52 @@ export default function Dashboard() {
     </div>
   );
 
-  const TabSettings=()=>(
+  const TabSettings=()=>{
+    const setUser = useStore(s=>s.setUser);
+
+    // DiceBear options — free, no extra packages
+    const SKIN_OPTIONS   = [{v:'light',l:'Light'},{v:'lightBrown',l:'Light Brown'},{v:'brown',l:'Brown'},{v:'darkBrown',l:'Dark Brown'},{v:'black',l:'Deep'},{v:'wheat',l:'Wheat'}];
+    const HAIR_OPTIONS   = [{v:'short01',l:'Short'},{v:'short02',l:'Short Textured'},{v:'long01',l:'Long Straight'},{v:'long02',l:'Long Wavy'},{v:'curly01',l:'Curly'},{v:'bun',l:'Bun'},{v:'afro',l:'Afro'},{v:'bald',l:'Shaved'}];
+    const HAIR_COLORS    = [{v:'brown',l:'Brown'},{v:'black',l:'Black'},{v:'blonde',l:'Blonde'},{v:'red',l:'Red'},{v:'gray',l:'Grey'},{v:'auburn',l:'Auburn'}];
+    const EYE_OPTIONS    = [{v:'variant01',l:'Classic'},{v:'variant02',l:'Round'},{v:'variant03',l:'Almond'},{v:'variant04',l:'Wide'}];
+    const MOUTH_OPTIONS  = [{v:'happy01',l:'Smile'},{v:'happy02',l:'Big Smile'},{v:'sad01',l:'Sad'},{v:'nervous01',l:'Nervous'}];
+    const BG_OPTIONS     = [{v:'b6e3f4',l:'Sky Blue'},{v:'c0aede',l:'Lavender'},{v:'d1f4d0',l:'Mint'},{v:'ffd5dc',l:'Rose'},{v:'ffdfba',l:'Peach'},{v:'f0ece6',l:'Cream'}];
+    const ACC_OPTIONS    = [{v:null,l:'None'},{v:'glasses',l:'Glasses'},{v:'sunglasses',l:'Sunnies'},{v:'earrings',l:'Earrings'}];
+
+    const params = new URLSearchParams({
+      seed: name || 'wellness',
+      skinColor: avatarSkin,
+      hair: avatarHair,
+      hairColor: avatarHairColor,
+      eyes: avatarEyes,
+      mouth: avatarMouth,
+      backgroundColor: avatarBg,
+      ...(avatarAccessory ? { accessories: avatarAccessory, accessoriesColor: '000000' } : {}),
+    });
+    const dicebearUrl = `https://api.dicebear.com/9.x/personas/svg?${params.toString()}`;
+
+    function OptionRow({ label, options, current, field }) {
+      return (
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:0.5,color:'#888',marginBottom:8}}>{label}</div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+            {options.map(o=>(
+              <button key={String(o.v)} onClick={()=>setUser({[field]:o.v})}
+                style={{padding:'6px 12px',borderRadius:99,border:`1.5px solid ${current===o.v?'#8aad8a':'#e8e4de'}`,background:current===o.v?'#f3f8f3':'white',color:current===o.v?'#5a7a5a':'#888',fontSize:12,fontWeight:current===o.v?600:400,cursor:'pointer',fontFamily:'DM Sans,sans-serif',transition:'all 0.15s'}}>
+                {o.l}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    return(
     <div style={{padding:'22px 26px',maxWidth:680}}>
       <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:24,padding:26,display:'flex',gap:18,alignItems:'center',marginBottom:16,flexWrap:'wrap'}}>
-        <div style={{width:64,height:64,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:30,border:'3px solid rgba(255,255,255,0.7)',flexShrink:0}}>🧑‍🌿</div>
+        <div style={{width:64,height:64,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',overflow:'hidden',border:'3px solid rgba(255,255,255,0.7)',flexShrink:0}}>
+          <img src={dicebearUrl} alt="avatar" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+        </div>
         <div style={{flex:1}}>
           <div style={{fontFamily:'Instrument Serif,serif',fontSize:22,color:'#1a1a1a',marginBottom:6}}>{name}</div>
           <div style={{display:'inline-flex',alignItems:'center',gap:6,background:'#f3f8f3',border:'1px solid #b5ceb5',borderRadius:99,padding:'4px 12px',fontSize:12,color:'#5a7a5a',fontWeight:500}}>{arch.icon} {arch.name}</div>
@@ -1424,6 +1530,26 @@ export default function Dashboard() {
               <div style={{fontSize:11,color:'#888',marginTop:2}}>{s.l}</div>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* ── Avatar customiser ── */}
+      <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20,marginBottom:16}}>
+        <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:16}}>Customise Your Avatar</div>
+        <div style={{display:'flex',gap:20,alignItems:'flex-start',flexWrap:'wrap'}}>
+          {/* Live preview */}
+          <div style={{width:120,height:120,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',overflow:'hidden',border:'3px solid #b5ceb5',flexShrink:0,alignSelf:'center'}}>
+            <img src={dicebearUrl} alt="preview" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+          </div>
+          <div style={{flex:1,minWidth:240}}>
+            <OptionRow label="Skin Tone" options={SKIN_OPTIONS} current={avatarSkin} field="avatarSkin"/>
+            <OptionRow label="Hair Style" options={HAIR_OPTIONS} current={avatarHair} field="avatarHair"/>
+            <OptionRow label="Hair Colour" options={HAIR_COLORS} current={avatarHairColor} field="avatarHairColor"/>
+            <OptionRow label="Eyes" options={EYE_OPTIONS} current={avatarEyes} field="avatarEyes"/>
+            <OptionRow label="Mouth" options={MOUTH_OPTIONS} current={avatarMouth} field="avatarMouth"/>
+            <OptionRow label="Accessories" options={ACC_OPTIONS} current={avatarAccessory} field="avatarAccessory"/>
+            <OptionRow label="Background" options={BG_OPTIONS} current={avatarBg} field="avatarBg"/>
+          </div>
         </div>
       </div>
 
@@ -1456,7 +1582,6 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Notification button with confirmation */}
       <NotifButton/>
 
       <div style={{background:'#f7f3ed',border:'1.5px solid #e8e4de',borderRadius:20,padding:20,textAlign:'center'}}>
@@ -1471,7 +1596,6 @@ export default function Dashboard() {
         </a>
       </div>
 
-      {/* Sign out */}
       <button
         onClick={()=>{
           if(window.confirm('Are you sure you want to sign out?')){
@@ -1489,7 +1613,8 @@ export default function Dashboard() {
         Sign out
       </button>
     </div>
-  );
+  );};
+
 
   const ShopModal=()=>(
     <div onClick={()=>setShopOpen(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200}}>
@@ -1570,6 +1695,7 @@ export default function Dashboard() {
     planet:{t:'Planet 🌍',s:`${ge} GE generated`},
     community:{t:'Community 👥',s:'Spring Wellness Program cohort'},
     settings:{t:'Profile & Settings ⚙️',s:`${arch.icon} ${arch.name} · ${lvMap[lvl]||'Building'}`},
+    badhabits:{t:'Quit Habits 🚫',s:'Track what you\'re reducing · slips cost health · awareness is the first step'},
     roadmap:{t:'Roadmap 🗺️',s:"Vote for features · suggest ideas · see what's coming"},
     analytics:{t:'Quiz Analytics 📊',s:'Conversion funnel & drop-off analysis'},
   };
@@ -1588,10 +1714,12 @@ export default function Dashboard() {
           {tab==='planet'     && <TabPlanet/>}
           {tab==='community'  && <TabCommunity/>}
           {tab==='settings'   && <TabSettings/>}
+          {tab==='badhabits'  && <TabBadHabits onAdd={()=>setBadHabitOpen(true)} onToast={toast}/>}
           {tab==='roadmap'    && <TabRoadmap onFeedback={()=>setFeedbackOpen(true)}/>}
           {tab==='analytics'  && isAdmin && <QuizAnalytics/>}
         </div>
       </div>
+      {badHabitOpen  && <BadHabitModal onClose={()=>setBadHabitOpen(false)}/>}
       {shopOpen    && <ShopModal/>}
       {donateOpen  && <DonateModal/>}
       {reflOpen    && <ReflModal week={week} refl={refl} setRefl={setRefl} submitRefl={submitRefl}/>}
