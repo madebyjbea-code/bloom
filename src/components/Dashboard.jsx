@@ -14,6 +14,7 @@ import BadHabitModal from './BadHabitModal';
 import QuizAnalytics from './QuizAnalytics';
 import TabHabitReview from './TabHabitReview';
 import TabRoutinesEnhanced from './TabRoutines';
+import EnergyModeModal, { ModeEditor } from './EnergyModeModal';
 
 const ROUTINES = {
   morning: {
@@ -356,6 +357,7 @@ export default function Dashboard() {
   const [sustainMode, setSustainMode] = useState(false);
   const [sustainUnlockOpen, setSustainUnlockOpen] = useState(false);
   const [badHabitOpen, setBadHabitOpen] = useState(false);
+  const [modeEditorOpen, setModeEditorOpen] = useState(false);
 
   const [routine, setRoutine]   = useState(null);
   const [rStep, setRStep]       = useState(0);
@@ -386,6 +388,9 @@ export default function Dashboard() {
   const checkBadHabitDailyReset = useStore(s=>s.checkBadHabitDailyReset);
   const applyDailyDecay  = useStore(s=>s.applyDailyDecay);
   const lastDecayDate    = useStore(s=>s.lastDecayDate);
+  const energyMode          = useStore(s => s.energyMode);
+  const habitsByMode        = useStore(s => s.habitsByMode);
+  const energyModeSetupDone = useStore(s => s.energyModeSetupDone);
 
   // Avatar customisation fields (for DiceBear URL)
   const avatarSkin      = useStore(s=>s.avatarSkin);
@@ -417,7 +422,12 @@ export default function Dashboard() {
     toast('✅ Habit restored');
   }
 
-  const allHabits = [...habits.filter(h=>!removedHabits.includes(h.key)), ...customHabits];
+  const baseHabits = habits.filter(h => !removedHabits.includes(h.key));
+  const allHabits = (() => {
+    if (!energyModeSetupDone || !energyMode || !habitsByMode) return [...baseHabits, ...customHabits];
+    const modeKeys = habitsByMode[energyMode] || [];
+    return [...baseHabits.filter(h => modeKeys.includes(h.key)), ...customHabits];
+  })();
   const pct = allHabits.length>0 ? Math.round((done.length/allHabits.length)*100) : 0;
   const mood = health>70 ? 'Thriving · Streak bonus 🔥' : health>40 ? 'Building momentum 💪' : 'Needs care 🌱';
   const equipped = inventory.find(i=>i.equipped);
@@ -942,9 +952,17 @@ export default function Dashboard() {
 
   const HabitsGrid=()=>(
     <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:22}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-        <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888'}}>
-          Today&apos;s Habits · {sustainMode ? '🌟 Sustain Mode' : `Week ${week}`} · {arch.icon} {arch.name}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,gap:8,flexWrap:'wrap'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+          <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888'}}>
+            Today&apos;s Habits · {sustainMode ? '🌟 Sustain Mode' : `Week ${week}`} · {arch.icon} {arch.name}
+          </div>
+          {energyModeSetupDone && energyMode && (() => {
+            const cfg = {low:{e:'🌙',c:'#8a7a9e',b:'#f3f0f8'},normal:{e:'🌿',c:'#5a7a5a',b:'#f0f7f0'},high:{e:'⚡',c:'#c4880a',b:'#fdf8ed'}};
+            const lbl = {low:'Low Energy',normal:'Normal',high:'High Energy'};
+            const m = cfg[energyMode];
+            return <button onClick={()=>setModeEditorOpen(true)} style={{display:'inline-flex',alignItems:'center',gap:4,padding:'3px 10px',background:m.b,border:`1px solid ${m.c}40`,borderRadius:99,fontSize:11,fontWeight:600,color:m.c,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>{m.e} {lbl[energyMode]} <span style={{fontSize:9,opacity:0.6}}>✏️</span></button>;
+          })()}
         </div>
         <button onClick={()=>setCustomHabitOpen(true)}
           style={{display:'flex',alignItems:'center',gap:5,padding:'6px 12px',background:'#f3f8f3',border:'1.5px solid #b5ceb5',borderRadius:99,fontSize:12,fontWeight:600,color:'#5a7a5a',cursor:'pointer',fontFamily:'DM Sans,sans-serif',transition:'all 0.2s'}}>
@@ -1803,7 +1821,9 @@ export default function Dashboard() {
       {feedbackOpen && <FeedbackModal onClose={()=>setFeedbackOpen(false)}/>}
       {streakHistoryOpen && <StreakHistoryModal habit={streakHistoryHabit} streakData={streaks[streakHistoryHabit?.key]} onClose={()=>setStreakHistoryOpen(false)}/>}
       {sustainUnlockOpen && <SustainUnlockModal onClose={()=>setSustainUnlockOpen(false)}/>}
-      <div id="bloom-toast" className="toast" style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%) translateY(20px)',background:'#1a1a16',color:'white',padding:'12px 20px',borderRadius:99,fontSize:13,fontWeight:500,opacity:0,transition:'all 0.3s',zIndex:300,whiteSpace:'nowrap',pointerEvents:'none'}}/>
+      <EnergyModeModal habits={baseHabits} archetypeKey={archetypeKey} />
+      {modeEditorOpen && <ModeEditor habits={baseHabits} archetypeKey={archetypeKey} onClose={()=>setModeEditorOpen(false)}/>}
+              <div id="bloom-toast" className="toast" style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%) translateY(20px)',background:'#1a1a16',color:'white',padding:'12px 20px',borderRadius:99,fontSize:13,fontWeight:500,opacity:0,transition:'all 0.3s',zIndex:300,whiteSpace:'nowrap',pointerEvents:'none'}}/>
       <style>{`
         @keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}
         @keyframes pulseGe{0%,100%{box-shadow:0 0 20px rgba(78,203,113,0.35)}50%{box-shadow:0 0 36px rgba(78,203,113,0.5)}}

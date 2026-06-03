@@ -93,7 +93,21 @@ type StoreState = {
 
   // Health decay
   lastDecayDate: string | null; // YYYY-MM-DD — skip decay if already ran today
+// Energy mode
+energyMode: 'low' | 'normal' | 'high' | null;
+energyModeDate: string | null;
+energyModeSetupDone: boolean;
+habitsByMode: { low: string[]; normal: string[]; high: string[] };
+todayHighSuggestion: string | null;
 
+// Actions — energy mode
+setEnergyMode: (mode: 'low' | 'normal' | 'high') => void;
+setEnergyModeDate: (date: string) => void;
+setEnergyModeSetupDone: (done: boolean) => void;
+setHabitsByMode: (stacks: { low: string[]; normal: string[]; high: string[] }) => void;
+addHabitToMode: (mode: 'low' | 'normal' | 'high', habitKey: string) => void;
+removeHabitFromMode: (mode: 'low' | 'normal' | 'high', habitKey: string) => void;
+setTodayHighSuggestion: (key: string | null) => void;
   // Actions — profile
   setUser: (userData: Partial<StoreState>) => void;
   setStats: (stats: Partial<Pick<StoreState, 'health' | 'coins' | 'greenEnergy' | 'level'>>) => void;
@@ -172,6 +186,11 @@ const defaults: Partial<StoreState> = {
   restWeekStart: null,
 
   lastDecayDate: null,
+  energyMode: null,
+  energyModeDate: null,
+  energyModeSetupDone: false,
+  habitsByMode: { low: [], normal: [], high: [] },
+  todayHighSuggestion: null,
 };
 
 export const useStore = create<StoreState>()(
@@ -315,7 +334,25 @@ export const useStore = create<StoreState>()(
         const newHealth = Math.max(FLOOR, health - totalDecay);
         set({ health: newHealth, lastDecayDate: today });
         return { decayed: true, newHealth, totalDecay };
+      },// ── Energy mode ──────────────────────────────────────
+      setEnergyMode: (mode) => set({ energyMode: mode }),
+      setEnergyModeDate: (date) => set({ energyModeDate: date }),
+      setEnergyModeSetupDone: (done) => set({ energyModeSetupDone: done }),
+      setHabitsByMode: (stacks) => set({ habitsByMode: stacks }),
+
+      addHabitToMode: (mode, habitKey) => {
+        const { habitsByMode } = get();
+        const list = habitsByMode[mode];
+        if (list.includes(habitKey)) return;
+        set({ habitsByMode: { ...habitsByMode, [mode]: [...list, habitKey] } });
       },
+
+      removeHabitFromMode: (mode, habitKey) => {
+        const { habitsByMode } = get();
+        set({ habitsByMode: { ...habitsByMode, [mode]: habitsByMode[mode].filter(k => k !== habitKey) } });
+      },
+
+      setTodayHighSuggestion: (key) => set({ todayHighSuggestion: key }),
 
       // ── Reset ────────────────────────────────────────────
       reset: () => set(defaults as StoreState),
@@ -367,6 +404,12 @@ export const useStore = create<StoreState>()(
         restWeekStart: state.restWeekStart,
         // Health decay
         lastDecayDate: state.lastDecayDate,
+        // Energy mode
+        energyMode: state.energyMode,
+        energyModeDate: state.energyModeDate,
+        energyModeSetupDone: state.energyModeSetupDone,
+        habitsByMode: state.habitsByMode,
+        todayHighSuggestion: state.todayHighSuggestion,
       }),
     }
   )
