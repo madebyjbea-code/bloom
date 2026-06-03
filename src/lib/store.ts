@@ -132,6 +132,7 @@ setTodayHighSuggestion: (key: string | null) => void;
 
   // Actions — health decay
   applyDailyDecay: (userId?: string) => Promise<{ decayed: boolean; newHealth: number; totalDecay?: number }>;
+  
 
   // Reset
   reset: () => void;
