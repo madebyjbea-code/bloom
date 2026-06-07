@@ -14,6 +14,7 @@ import BadHabitModal from './BadHabitModal';
 import QuizAnalytics from './QuizAnalytics';
 import TabHabitReview from './TabHabitReview';
 import TabRoutinesEnhanced from './TabRoutines';
+import TabNourish from './TabNourish';
 import EnergyModeModal, { ModeEditor } from './EnergyModeModal';
 
 const ROUTINES = {
@@ -74,6 +75,7 @@ const SHOP_ITEMS = [
 const NAV = [
   { key: 'dashboard', icon: '🌿', label: 'Dashboard' },
   { key: 'habits',    icon: '✅', label: 'Habits' },
+  { key: 'nourish', icon: '🥗', label: 'Nourish' },
   { key: 'routines',  icon: '⏱',  label: 'Routines' },
   { key: 'science',   icon: '🔬', label: 'Habit Science' },
   { key: 'planner',   icon: '📅', label: 'Planner' },
@@ -1785,6 +1787,7 @@ export default function Dashboard() {
     settings:{t:'Profile & Settings ⚙️',s:`${arch.icon} ${arch.name} · ${lvMap[lvl]||'Building'}`},
     badhabits:{t:'Quit Habits 🚫',s:'Track what you\'re reducing · slips cost health · awareness is the first step'},
     science:{t:'Habit Science 🔬',s:'The research behind every habit in your program'},
+    nourish: { t: 'Nourish 🥗', s: 'Track what you ate today — no quantities, no guilt' },
     roadmap:{t:'Roadmap 🗺️',s:"Vote for features · suggest ideas · see what's coming"},
     analytics:{t:'Quiz Analytics 📊',s:'Conversion funnel & drop-off analysis'},
   };
@@ -1799,6 +1802,7 @@ export default function Dashboard() {
           {tab==='dashboard'  && <TabDashboard/>}
           {tab==='habits'     && <TabHabits/>}
           {tab==='science'    && <TabHabitReview habits={habits} customHabits={customHabits}/>}
+          {tab==='nourish' && <TabNourish userId={userId} coins={coins} setStats={setStats} toast={toast}/>}
           {tab==='routines'   && <TabRoutinesEnhanced
               routineLog={routineLog} setRoutineLog={setRoutineLog}
               routineFreqs={routineFreqs} setRoutineFreqs={setRoutineFreqs}
