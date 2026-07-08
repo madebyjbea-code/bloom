@@ -48,6 +48,11 @@ type StoreState = {
   avatarMouth: string;
   avatarAccessory: string | null;
   avatarBg: string;
+  avatarScene: string | null; // purchased scenery key
+
+  // Region — drives seasonal produce (In Season Now), independent of Notion.
+  // Auto-detected from browser timezone on first load; user can override.
+  region: string | null;
 
   // Archetype
   archetypeKey: string | null;
@@ -82,35 +87,39 @@ type StoreState = {
 
   // Bad habits
   badHabits: BadHabit[];
-  badHabitLogsToday: Record<string, BadHabitLog>; // { habitKey: log }
-  lastBadHabitLogDate: string | null;             // YYYY-MM-DD for daily reset
+  badHabitLogsToday: Record<string, BadHabitLog>;
+  lastBadHabitLogDate: string | null;
 
   // Rest days
   isRestDayToday: boolean;
   restDayReason: string | null;
   restDaysThisWeek: number;
-  restWeekStart: string | null; // YYYY-MM-DD of Monday this week
+  restWeekStart: string | null;
 
   // Health decay
-  lastDecayDate: string | null; // YYYY-MM-DD — skip decay if already ran today
-// Energy mode
-energyMode: 'low' | 'normal' | 'high' | null;
-energyModeDate: string | null;
-energyModeSetupDone: boolean;
-habitsByMode: { low: string[]; normal: string[]; high: string[] };
-todayHighSuggestion: string | null;
+  lastDecayDate: string | null;
 
-// Actions — energy mode
-setEnergyMode: (mode: 'low' | 'normal' | 'high') => void;
-setEnergyModeDate: (date: string) => void;
-setEnergyModeSetupDone: (done: boolean) => void;
-setHabitsByMode: (stacks: { low: string[]; normal: string[]; high: string[] }) => void;
-addHabitToMode: (mode: 'low' | 'normal' | 'high', habitKey: string) => void;
-removeHabitFromMode: (mode: 'low' | 'normal' | 'high', habitKey: string) => void;
-setTodayHighSuggestion: (key: string | null) => void;
+  // Energy mode
+  energyMode: 'low' | 'normal' | 'high' | null;
+  energyModeDate: string | null;
+  energyModeSetupDone: boolean;
+  habitsByMode: { low: string[]; normal: string[]; high: string[] };
+  todayHighSuggestion: string | null;
+
+  // Actions — energy mode
+  setEnergyMode: (mode: 'low' | 'normal' | 'high') => void;
+  setEnergyModeDate: (date: string) => void;
+  setEnergyModeSetupDone: (done: boolean) => void;
+  setHabitsByMode: (stacks: { low: string[]; normal: string[]; high: string[] }) => void;
+  addHabitToMode: (mode: 'low' | 'normal' | 'high', habitKey: string) => void;
+  removeHabitFromMode: (mode: 'low' | 'normal' | 'high', habitKey: string) => void;
+  setTodayHighSuggestion: (key: string | null) => void;
+
   // Actions — profile
   setUser: (userData: Partial<StoreState>) => void;
   setStats: (stats: Partial<Pick<StoreState, 'health' | 'coins' | 'greenEnergy' | 'level'>>) => void;
+  setAvatarScene: (scene: string | null) => void;
+  setRegion: (region: string | null) => void;
 
   // Actions — good habits
   setHabits: (habits: Habit[]) => void;
@@ -132,7 +141,6 @@ setTodayHighSuggestion: (key: string | null) => void;
 
   // Actions — health decay
   applyDailyDecay: (userId?: string) => Promise<{ decayed: boolean; newHealth: number; totalDecay?: number }>;
-  
 
   // Reset
   reset: () => void;
@@ -154,6 +162,8 @@ const defaults: Partial<StoreState> = {
   avatarMouth: 'smile',
   avatarAccessory: 'rounded',
   avatarBg: 'b6e3f4',
+  avatarScene: null,
+  region: null,
 
   archetypeKey: null,
   archetypeName: null,
@@ -202,6 +212,8 @@ export const useStore = create<StoreState>()(
       // ── Profile ──────────────────────────────────────────
       setUser: (userData) => set(userData),
       setStats: (stats) => set(stats),
+      setAvatarScene: (scene) => set({ avatarScene: scene }),
+      setRegion: (region) => set({ region }),
 
       // ── Good habits ──────────────────────────────────────
       setHabits: (habits) => set({ habits }),
@@ -274,21 +286,17 @@ export const useStore = create<StoreState>()(
           set({ badHabitLogsToday: {}, lastBadHabitLogDate: today });
         }
 
-        // Also reset rest day status at midnight
-        // Keep restDaysThisWeek but check if we're in a new week (Monday reset)
-        const { restWeekStart, restDaysThisWeek } = get();
+        const { restWeekStart } = get();
         const todayDate = new Date();
-        const dayOfWeek = todayDate.getDay(); // 0=Sun, 1=Mon
+        const dayOfWeek = todayDate.getDay();
         const monday = new Date(todayDate);
         monday.setDate(todayDate.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
         const mondayStr = monday.toISOString().split('T')[0];
 
         if (restWeekStart !== mondayStr) {
-          // New week — reset weekly rest day counter, but keep today's rest status
           set({ restDaysThisWeek: 0, restWeekStart: mondayStr });
         }
 
-        // Reset today's rest status (only persists for the day it was set)
         const { isRestDayToday, lastBadHabitLogDate: prevDate } = get();
         if (isRestDayToday && prevDate !== today) {
           set({ isRestDayToday: false, restDayReason: null });
@@ -306,24 +314,21 @@ export const useStore = create<StoreState>()(
 
       // ── Health decay ─────────────────────────────────────
       // Runs once per day on app load.
-      // -2 baseline + yesterday's bad habit penalties, capped at -10 total.
+      // -5 baseline + yesterday's bad habit penalties, capped at -15 total.
       // Rest days skip decay entirely.
       // Caller (Dashboard) persists newHealth to Supabase.
       applyDailyDecay: async (userId?: string) => {
         const { lastDecayDate, isRestDayToday, health, badHabits, badHabitLogsToday } = get();
         const today = new Date().toISOString().split('T')[0];
 
-        // Already decayed today or rest day — skip
         if (lastDecayDate === today || isRestDayToday) {
           return { decayed: false, newHealth: health };
         }
 
-        const BASELINE_DECAY = 2;
+        const BASELINE_DECAY = 5;
         const FLOOR = 10;
-        const MAX_DECAY = 10; // cap so even a terrible day can't bottom out health instantly
+        const MAX_DECAY = 15;
 
-        // Sum penalties for any bad habits that failed yesterday
-        // (badHabitLogsToday still holds yesterday's logs until checkBadHabitDailyReset clears them)
         const badHabitPenalty = Object.entries(badHabitLogsToday)
           .filter(([, log]) => (log as { failed: boolean }).failed)
           .reduce((sum, [key]) => {
@@ -335,7 +340,9 @@ export const useStore = create<StoreState>()(
         const newHealth = Math.max(FLOOR, health - totalDecay);
         set({ health: newHealth, lastDecayDate: today });
         return { decayed: true, newHealth, totalDecay };
-      },// ── Energy mode ──────────────────────────────────────
+      },
+
+      // ── Energy mode ──────────────────────────────────────
       setEnergyMode: (mode) => set({ energyMode: mode }),
       setEnergyModeDate: (date) => set({ energyModeDate: date }),
       setEnergyModeSetupDone: (done) => set({ energyModeSetupDone: done }),
@@ -377,6 +384,8 @@ export const useStore = create<StoreState>()(
         avatarMouth: state.avatarMouth,
         avatarAccessory: state.avatarAccessory,
         avatarBg: state.avatarBg,
+        avatarScene: state.avatarScene,
+        region: state.region,
         // Archetype
         archetypeKey: state.archetypeKey,
         archetypeName: state.archetypeName,

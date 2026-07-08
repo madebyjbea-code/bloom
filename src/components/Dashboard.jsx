@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { getHabitsForUser, getCurrentWeek, getDayOfWeek, ARCHETYPE_INFO } from '../lib/springProgram';
 import { useStore } from '../lib/store';
+import { getMoodExpression } from '../lib/avatarMood';
 import CommunityFeed from './CommunityFeed';
 import ProgressStats from './ProgressStats';
 import CustomHabitModal from './CustomHabitModal';
@@ -15,6 +16,7 @@ import QuizAnalytics from './QuizAnalytics';
 import TabHabitReview from './TabHabitReview';
 import TabRoutinesEnhanced from './TabRoutines';
 import TabNourish from './TabNourish';
+import TabCompanion from './TabCompanion';
 import EnergyModeModal, { ModeEditor } from './EnergyModeModal';
 
 const ROUTINES = {
@@ -58,34 +60,64 @@ const ROUTINES = {
   },
 };
 
+// Shop items — SVG-renderable accessories only
 const SHOP_ITEMS = [
-  { key: 'crown',    name: 'Tiny Crown',    icon: '👑', cost: 200, ge: 0 },
-  { key: 'scarf',    name: 'Cozy Scarf',    icon: '🧣', cost: 150, ge: 0 },
-  { key: 'flowers',  name: 'Flower Garden', icon: '🌸', cost: 300, ge: 0 },
-  { key: 'star',     name: 'Starry BG',     icon: '✨', cost: 500, ge: 0 },
-  { key: 'hat',      name: 'Sun Hat',       icon: '☀️', cost: 250, ge: 0 },
-  { key: 'glasses',  name: 'Round Glasses', icon: '👓', cost: 120, ge: 0 },
-  { key: 'backpack', name: 'Tiny Backpack', icon: '🎒', cost: 180, ge: 0 },
-  { key: 'bow',      name: 'Floral Bow',    icon: '🌼', cost: 90,  ge: 0 },
-  { key: 'wings',    name: 'Green Wings',   icon: '🍃', cost: 0,   ge: 100 },
-  { key: 'halo',     name: 'Earth Halo',    icon: '🌍', cost: 0,   ge: 200 },
-  { key: 'leaf',     name: 'Leaf Crown',    icon: '🌿', cost: 0,   ge: 150 },
+  { key: 'bow',           name: 'Floral Bow',    icon: '🎀', cost: 90,  ge: 0 },
+  { key: 'flower_crown',  name: 'Flower Crown',  icon: '🌸', cost: 150, ge: 0 },
+  { key: 'star_sparkles', name: 'Star Sparkles', icon: '✨', cost: 200, ge: 0 },
+  { key: 'crown',         name: 'Gold Crown',    icon: '👑', cost: 250, ge: 0 },
+  { key: 'wings',         name: 'Green Wings',   icon: '🍃', cost: 0,   ge: 100 },
+  { key: 'halo',          name: 'Earth Halo',    icon: '🌍', cost: 0,   ge: 200 },
+  { key: 'leaf_halo',     name: 'Leaf Halo',     icon: '🌿', cost: 0,   ge: 150 },
 ];
 
+// Purchasable scenery — pure CSS gradients, no art needed
+const SCENES = [
+  { key: 'default',       name: 'Default',        gradient: 'linear-gradient(160deg,#e8f0e8,#f0ede8)', emoji: '🌿', cost: 0   },
+  { key: 'forest',        name: 'Forest Morning',  gradient: 'linear-gradient(160deg,#c8ddc8,#8aad8a)', emoji: '🌲', cost: 150 },
+  { key: 'golden_hour',   name: 'Golden Hour',     gradient: 'linear-gradient(160deg,#f7e0a8,#f0b060)', emoji: '🌅', cost: 150 },
+  { key: 'rainy_day',     name: 'Rainy Day',       gradient: 'linear-gradient(160deg,#b8c8d8,#7a8898)', emoji: '🌧️', cost: 150 },
+  { key: 'night_sky',     name: 'Night Sky',       gradient: 'linear-gradient(160deg,#1e1e3e,#2a2a5a)', emoji: '🌙', cost: 200 },
+  { key: 'snowy_cabin',   name: 'Snowy Cabin',     gradient: 'linear-gradient(160deg,#e8f0f8,#c0d0e0)', emoji: '❄️', cost: 200 },
+  { key: 'ocean_dusk',    name: 'Ocean at Dusk',   gradient: 'linear-gradient(160deg,#d8a8c8,#8858a8)', emoji: '🌊', cost: 250 },
+  { key: 'spring_bloom',  name: 'Spring Bloom',    gradient: 'linear-gradient(160deg,#f8d8e8,#e8a8c8)', emoji: '🌸', cost: 200 },
+  { key: 'autumn_forest', name: 'Autumn Forest',   gradient: 'linear-gradient(160deg,#e8a850,#b86820)', emoji: '🍂', cost: 250 },
+];
+
+// Top-level sidebar (5 items). Habits + More expand into sub-tabs below.
 const NAV = [
-  { key: 'dashboard', icon: '🌿', label: 'Dashboard' },
+  { key: 'dashboard', icon: '🌿', label: 'Home' },
   { key: 'habits',    icon: '✅', label: 'Habits' },
-  { key: 'nourish', icon: '🥗', label: 'Nourish' },
-  { key: 'routines',  icon: '⏱',  label: 'Routines' },
-  { key: 'science',   icon: '🔬', label: 'Habit Science' },
-  { key: 'planner',   icon: '📅', label: 'Planner' },
-  { key: 'planet',    icon: '🌍', label: 'Planet' },
+  { key: 'companion', icon: '🌸', label: 'Companion' },
   { key: 'community', icon: '👥', label: 'Community' },
-  { key: 'roadmap',   icon: '🗺️',  label: 'Roadmap' },
-  { key: 'analytics', icon: '📊', label: 'Analytics', adminOnly: true },
+  { key: 'more',      icon: '☰',  label: 'More' },
 ];
 
-// ── Paste your UUID from Supabase → users table → id column ──
+// Sub-tabs revealed by the horizontal SubNav when you're inside a group.
+// (Quit habits already live inside the Habits tab, so no separate entry.)
+const GROUPS = {
+  habits: [
+    { key: 'habits',   icon: '✅', label: 'Habits' },
+    { key: 'routines', icon: '⏱', label: 'Routines' },
+    { key: 'science',  icon: '🔬', label: 'Science' },
+  ],
+  more: [
+    { key: 'nourish',  icon: '🥗', label: 'Nourish' },
+    { key: 'planet',   icon: '🌍', label: 'Planet' },
+    { key: 'planner',  icon: '📅', label: 'Planner' },
+    { key: 'roadmap',  icon: '🗺️', label: 'Roadmap' },
+    { key: 'settings', icon: '⚙️', label: 'Settings' },
+  ],
+};
+
+// Which group (if any) a tab belongs to — drives sidebar highlight + SubNav.
+const groupOf = (tabKey) => {
+  for (const g of Object.keys(GROUPS)) {
+    if (GROUPS[g].some(i => i.key === tabKey)) return g;
+  }
+  return null;
+};
+
 const ADMIN_USER_ID = '3f5a0efe-6932-4821-b7fa-334a8f0bffc3';
 
 function fmt(secs) {
@@ -98,6 +130,67 @@ function toast(msg) {
   el.textContent = msg;
   el.classList.add('show');
   setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ── SVG accessory overlays — drawn in code, render over the avatar circle ──
+function AvatarAccessoryOverlay({ itemKey }) {
+  if (!itemKey) return null;
+  const overlays = {
+    bow: (
+      <svg width="130" height="130" viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
+        <path d="M48 30 C44 22 56 18 65 23 C74 18 86 22 82 30 C76 28 70 26 65 23 C60 26 54 28 48 30Z" fill="#e8a8b8"/>
+        <path d="M48 30 C44 38 56 40 65 36 C74 40 86 38 82 30 C76 32 70 34 65 36 C60 34 54 32 48 30Z" fill="#e8a8b8"/>
+        <circle cx="65" cy="30" r="5" fill="#d4788a"/>
+      </svg>
+    ),
+    flower_crown: (
+      <svg width="130" height="130" viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
+        {[[65,10],[50,16],[80,16],[38,28],[92,28]].map(([cx,cy],i)=>(
+          <g key={i}>
+            <circle cx={cx} cy={cy} r="7" fill="#f8c8a0"/>
+            <circle cx={cx} cy={cy} r="3.5" fill="#e8882a"/>
+          </g>
+        ))}
+      </svg>
+    ),
+    star_sparkles: (
+      <svg width="130" height="130" viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
+        {[[12,22,'#f4d03f',14],[112,18,'#f4d03f',12],[8,72,'#a8d8a8',10],[118,68,'#a8d8a8',10],[65,5,'#f4d03f',16],[30,105,'#f4d03f',10],[100,108,'#e8c0d8',10]].map(([x,y,c,s],i)=>(
+          <text key={i} x={x} y={y} fontSize={s} fill={String(c)} textAnchor="middle">✦</text>
+        ))}
+      </svg>
+    ),
+    crown: (
+      <svg width="130" height="130" viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
+        <path d="M42 36 L50 16 L65 28 L80 16 L88 36 Z" fill="#d4af6a"/>
+        <rect x="40" y="36" width="50" height="8" rx="2" fill="#c49a50"/>
+        <circle cx="50" cy="16" r="4" fill="#f0d080"/>
+        <circle cx="65" cy="28" r="4" fill="#f0d080"/>
+        <circle cx="80" cy="16" r="4" fill="#f0d080"/>
+      </svg>
+    ),
+    wings: (
+      <svg width="130" height="130" viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:1}}>
+        <path d="M8 72 C-4 52 18 28 42 50 C32 62 26 72 30 82 C20 80 10 78 8 72Z" fill="#8aad8a" opacity="0.75"/>
+        <path d="M122 72 C134 52 112 28 88 50 C98 62 104 72 100 82 C110 80 120 78 122 72Z" fill="#8aad8a" opacity="0.75"/>
+      </svg>
+    ),
+    halo: (
+      <svg width="130" height="130" viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
+        <ellipse cx="65" cy="16" rx="28" ry="7" fill="none" stroke="#4ecb71" strokeWidth="4" opacity="0.9"/>
+      </svg>
+    ),
+    leaf_halo: (
+      <svg width="130" height="130" viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
+        {[0,40,80,120,160,200,240,280,320].map((angle,i)=>{
+          const rad=(angle-90)*Math.PI/180;
+          const cx=65+60*Math.cos(rad), cy=65+60*Math.sin(rad);
+          return <ellipse key={i} cx={cx} cy={cy} rx="5" ry="9" fill="#7ab85a" opacity="0.85" transform={`rotate(${angle},${cx},${cy})`}/>;
+        })}
+      </svg>
+    ),
+  };
+  return overlays[itemKey] || null;
 }
 
 // ── Extracted modals — OUTSIDE Dashboard to prevent remount on every keystroke ──
@@ -142,64 +235,156 @@ function ReflModal({ week, refl, setRefl, submitRefl }) {
   );
 }
 
-const STATS_FIELDS = [
-  {key:'sleep',      icon:'😴',label:'Sleep',      placeholder:'e.g. 7.5',  unit:'hrs',   type:'number',step:'0.5'},
-  {key:'mindfulness',icon:'🧘',label:'Mindfulness',placeholder:'e.g. 20',   unit:'min',   type:'number',step:'1'},
-  {key:'steps',      icon:'🚶',label:'Steps',      placeholder:'e.g. 8000', unit:'steps', type:'number',step:'100'},
-  {key:'water',      icon:'💧',label:'Water',      placeholder:'e.g. 2.0',  unit:'litres',type:'number',step:'0.1'},
-];
+const STAT_GOALS = {
+  water:       { icon:'💧', label:'Hydration', reward:1, type:'add', min:0,
+                 increments:[{amt:0.25,label:'Glass +250ml'},{amt:0.5,label:'Bottle +500ml'}],
+                 fmt:(v)=>`${trimNum(v)}L`, hit:(v)=>v>=2, goalText:'2L' },
+  mindfulness: { icon:'🧘', label:'Mindfulness', reward:2, type:'add', min:0,
+                 increments:[{amt:5,label:'+5 min'},{amt:10,label:'+10 min'}],
+                 fmt:(v)=>`${trimNum(v)} min`, hit:(v)=>v>=10, goalText:'10 min' },
+  steps:       { icon:'🚶', label:'Steps', reward:1, type:'add', min:0, exact:true,
+                 increments:[{amt:1000,label:'+1,000'},{amt:2500,label:'+2,500'}],
+                 fmt:(v)=>v.toLocaleString(), hit:(v)=>v>=8000, goalText:'8,000' },
+  sleep:       { icon:'😴', label:'Sleep', reward:2, type:'stepper', min:0, max:14, step:0.5,
+                 fmt:(v)=>`${trimNum(v)}h`, hit:(v)=>v>=7&&v<=9, goalText:'7–9h' },
+};
+const STAT_ORDER = ['water','mindfulness','steps','sleep'];
+function trimNum(n){ return Number.isInteger(Number(n)) ? String(Number(n)) : String(Number(Number(n).toFixed(2))); }
 
-function StatsLogModal({ statsForm, setStatsForm, manualStats, setManualStats, setStatsLogOpen }) {
-  function saveStats() {
-    const today = new Date().toISOString().split('T')[0];
-    const updated = {
-      date: today,
-      sleep:       statsForm.sleep       ? parseFloat(statsForm.sleep)     : manualStats.sleep,
-      mindfulness: statsForm.mindfulness ? parseInt(statsForm.mindfulness) : manualStats.mindfulness,
-      steps:       statsForm.steps       ? parseInt(statsForm.steps)       : manualStats.steps,
-      water:       statsForm.water       ? parseFloat(statsForm.water)     : manualStats.water,
-    };
-    setManualStats(updated);
-    localStorage.setItem('bloom-daily-stats', JSON.stringify(updated));
-    setStatsForm({sleep:'',mindfulness:'',steps:'',water:''});
-    setStatsLogOpen(false);
+const PILL = {
+  padding:'8px 14px', borderRadius:99, fontSize:13, fontWeight:600, cursor:'pointer',
+  fontFamily:'DM Sans,sans-serif', border:'1.5px solid #b5ceb5', background:'#f3f8f3',
+  color:'#3a6a3a', whiteSpace:'nowrap',
+};
+
+function StatsLogModal({ manualStats, setManualStats, awardStatHealth, setStatsLogOpen }) {
+  const today = new Date().toISOString().split('T')[0];
+  const val = (k) => Number(manualStats[k] || 0);
+
+  async function applyChange(key, raw) {
+    const g = STAT_GOALS[key];
+    let v = Math.max(g.min ?? 0, raw);
+    if (g.max != null) v = Math.min(g.max, v);
+    v = Number(v.toFixed(2));
+    const updated = { ...manualStats, date: today, [key]: v };
+    const afterAward = await awardStatHealth(updated);
+    setManualStats(afterAward);
+    localStorage.setItem('bloom-daily-stats', JSON.stringify(afterAward));
   }
 
   return (
     <div onClick={()=>setStatsLogOpen(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:24,padding:28,width:420,maxWidth:'95vw',maxHeight:'90vh',overflowY:'auto'}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:24,padding:28,width:440,maxWidth:'95vw',maxHeight:'90vh',overflowY:'auto'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-          <h2 style={{fontFamily:'Instrument Serif,serif',fontSize:22}}>Log today&apos;s stats</h2>
+          <h2 style={{fontFamily:'Instrument Serif,serif',fontSize:22}}>Today&apos;s wellbeing</h2>
           <button onClick={()=>setStatsLogOpen(false)} style={{width:30,height:30,borderRadius:'50%',border:'1.5px solid #e8e4de',background:'transparent',cursor:'pointer',fontSize:15}}>✕</button>
         </div>
-        <p style={{fontSize:13,color:'#888',marginBottom:20}}>Leave blank to keep today&apos;s existing value</p>
-        <div style={{display:'flex',flexDirection:'column',gap:14,marginBottom:20}}>
-          {STATS_FIELDS.map(f=>(
-            <div key={f.key} style={{display:'flex',alignItems:'center',gap:12}}>
-              <div style={{width:36,height:36,borderRadius:10,background:'#f7f3ed',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>{f.icon}</div>
-              <div style={{flex:1}}>
-                <label style={{display:'block',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:0.5,color:'#888',marginBottom:5}}>{f.label}</label>
-                <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                  <input
-                    type={f.type}
-                    step={f.step}
-                    value={statsForm[f.key]}
-                    onChange={e=>setStatsForm(p=>({...p,[f.key]:e.target.value}))}
-                    placeholder={manualStats[f.key] ? String(manualStats[f.key]) : f.placeholder}
-                    style={{flex:1,padding:'9px 12px',border:'1.5px solid #e8e4de',borderRadius:10,fontSize:16,fontFamily:'DM Sans,sans-serif',outline:'none',color:'#2a2a2a'}}
-                    onFocus={e=>e.target.style.borderColor='#8aad8a'}
-                    onBlur={e=>e.target.style.borderColor='#e8e4de'}
-                  />
-                  <span style={{fontSize:12,color:'#aaa',flexShrink:0}}>{f.unit}</span>
+        <p style={{fontSize:13,color:'#888',marginBottom:20}}>Tap to add as you go — reach a goal to earn health ❤️</p>
+        <div style={{display:'flex',flexDirection:'column',gap:14}}>
+          {STAT_ORDER.map(key=>{
+            const g = STAT_GOALS[key];
+            const v = val(key);
+            const done = g.hit(v);
+            return (
+              <div key={key} style={{border:`1.5px solid ${done?'#8aad8a':'#e8e4de'}`,background:done?'#f8fcf8':'white',borderRadius:16,padding:14,transition:'all 0.2s'}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                  <div style={{display:'flex',alignItems:'center',gap:10}}>
+                    <div style={{width:34,height:34,borderRadius:10,background:'#f7f3ed',display:'flex',alignItems:'center',justifyContent:'center',fontSize:17,flexShrink:0}}>{g.icon}</div>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:600,color:'#2a2a2a'}}>{g.label}</div>
+                      <div style={{fontSize:11,color:done?'#5a7a5a':'#aaa'}}>Goal {g.goalText}{done?'  ·  reached ✓':''}</div>
+                    </div>
+                  </div>
+                  <div style={{fontFamily:'Instrument Serif,serif',fontSize:22,color:done?'#5a7a5a':'#1a1a1a'}}>{g.fmt(v)}</div>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                  {g.type==='stepper' ? (
+                    <>
+                      <button onClick={()=>applyChange(key, v - g.step)} style={{...PILL,width:42,padding:'8px 0',textAlign:'center'}}>−</button>
+                      <button onClick={()=>applyChange(key, v + g.step)} style={{...PILL,width:42,padding:'8px 0',textAlign:'center'}}>+</button>
+                      <span style={{fontSize:11,color:'#bbb'}}>half-hour steps</span>
+                    </>
+                  ) : (
+                    <>
+                      {g.increments.map(inc=>(
+                        <button key={inc.label} onClick={()=>applyChange(key, v + inc.amt)} style={PILL}>{inc.label}</button>
+                      ))}
+                      {g.exact && (
+                        <input type="number" inputMode="numeric" placeholder="exact"
+                          onKeyDown={e=>{ if(e.key==='Enter' && e.target.value){ applyChange(key, parseFloat(e.target.value)); e.target.value=''; e.target.blur(); } }}
+                          onBlur={e=>{ if(e.target.value){ applyChange(key, parseFloat(e.target.value)); e.target.value=''; } }}
+                          style={{width:80,padding:'7px 10px',border:'1.5px solid #e8e4de',borderRadius:99,fontSize:13,fontFamily:'DM Sans,sans-serif',outline:'none',color:'#2a2a2a'}} />
+                      )}
+                    </>
+                  )}
+                  {v>0 && (
+                    <button onClick={()=>applyChange(key, 0)} title="Reset" style={{marginLeft:'auto',width:34,height:34,borderRadius:'50%',border:'1.5px solid #e8e4de',background:'transparent',cursor:'pointer',fontSize:14,color:'#aaa',flexShrink:0}}>↺</button>
+                  )}
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
-        <button onClick={saveStats} style={{width:'100%',padding:13,background:'#8aad8a',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
-          Save stats →
-        </button>
+        <p style={{fontSize:11,color:'#bbb',textAlign:'center',marginTop:16}}>Each goal rewards health once per day. Resetting keeps what you already earned.</p>
       </div>
+    </div>
+  );
+}
+
+function NotionSyncCard({ toast }) {
+  const [status, setStatus] = useState('idle'); // idle | loading | done | error
+  const [result, setResult] = useState(null);
+
+  async function runSync() {
+    setStatus('loading');
+    setResult(null);
+    try {
+      // NOTE: uses a NEXT_PUBLIC_ copy of the sync secret so this button can
+      // call the route directly from the browser. That means the secret is
+      // visible in the client bundle to anyone who inspects it — consistent
+      // with this app's existing security model (permissive RLS, gating done
+      // at the component level, no real auth layer) rather than a new
+      // weaker pattern. The route itself is unchanged and still works via
+      // the plain URL + server-side NOTION_SYNC_SECRET for manual/cron use.
+      const secret = process.env.NEXT_PUBLIC_NOTION_SYNC_SECRET;
+      const res = await fetch(`/api/admin/sync-notion?secret=${encodeURIComponent(secret || '')}`);
+      const data = await res.json();
+      if (data.ok) {
+        setStatus('done');
+        setResult(data);
+        toast('✅ Notion sync complete');
+      } else {
+        setStatus('error');
+        setResult(data);
+        toast('⚠️ Sync failed — see details below');
+      }
+    } catch (e) {
+      setStatus('error');
+      setResult({ error: 'Network error', notionError: String(e) });
+      toast('⚠️ Sync failed — see details below');
+    }
+  }
+
+  return (
+    <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:'18px 20px',marginBottom:16}}>
+      <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:10}}>Notion Library (admin)</div>
+      <p style={{fontSize:12,color:'#888',marginBottom:14,lineHeight:1.5}}>Pulls your Virtual Pantry and published recipes from Notion into the app.</p>
+      <button onClick={runSync} disabled={status==='loading'}
+        style={{width:'100%',padding:'11px',borderRadius:10,border:'none',background:status==='loading'?'#c8ddc8':'#5a7a5a',color:'white',fontWeight:600,fontSize:13,cursor:status==='loading'?'default':'pointer',fontFamily:'DM Sans,sans-serif'}}>
+        {status==='loading' ? 'Syncing…' : '🔄 Sync Notion Library'}
+      </button>
+      {status==='done' && result && (
+        <div style={{marginTop:12,fontSize:12,color:'#5a7a5a',lineHeight:1.7}}>
+          🌿 Pantry: {result.pantry?.synced}/{result.pantry?.total} synced<br/>
+          📖 Recipes: {result.recipes?.synced}/{result.recipes?.total} synced
+          {result.recipes?.skippedNotPublished > 0 && <> · {result.recipes.skippedNotPublished} not yet published</>}
+        </div>
+      )}
+      {status==='error' && result && (
+        <div style={{marginTop:12,fontSize:12,color:'#a04040',lineHeight:1.6,wordBreak:'break-word'}}>
+          {result.notionError || result.error || 'Unknown error'}
+        </div>
+      )}
     </div>
   );
 }
@@ -220,7 +405,6 @@ function StreakHistoryModal({ habit, streakData, onClose }) {
           </div>
           <button onClick={onClose} style={{width:30,height:30,borderRadius:'50%',border:'1.5px solid #e8e4de',background:'transparent',cursor:'pointer',fontSize:15}}>✕</button>
         </div>
-
         <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:12,marginBottom:24}}>
           <div style={{background:'#f3f8f3',border:'1.5px solid #8aad8a',borderRadius:16,padding:18,textAlign:'center'}}>
             <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:1,color:'#5a7a5a',marginBottom:8}}>Current Streak</div>
@@ -233,42 +417,31 @@ function StreakHistoryModal({ habit, streakData, onClose }) {
             <div style={{fontSize:12,color:'#888'}}>days</div>
           </div>
         </div>
-
         <div style={{background:'#f7f3ed',borderRadius:14,padding:16,marginBottom:18}}>
           <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:1,color:'#888',marginBottom:10}}>Last Completed</div>
-          <div style={{fontSize:14,fontWeight:500,color:'#2a2a2a'}}>{lastCompleted === 'Never' ? 'Not yet completed' : new Date(lastCompleted).toLocaleDateString('en-GB', {weekday:'long', year:'numeric', month:'long', day:'numeric'})}</div>
+          <div style={{fontSize:14,fontWeight:500,color:'#2a2a2a'}}>{lastCompleted==='Never'?'Not yet completed':new Date(lastCompleted).toLocaleDateString('en-GB',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
         </div>
-
         {longest > 0 && (
           <div style={{background:'linear-gradient(135deg,#f3f8f3,#e8f0e8)',borderRadius:14,padding:16,border:'1px solid #b5ceb5'}}>
             <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:1,color:'#5a7a5a',marginBottom:8}}>Milestones</div>
             <div style={{display:'flex',flexDirection:'column',gap:8}}>
-              {[
-                {days:7, emoji:'🔥', label:'Week Warrior'},
-                {days:14, emoji:'⚡', label:'Fortnight Force'},
-                {days:21, emoji:'🌟', label:'Habit Formed'},
-                {days:30, emoji:'🏆', label:'Month Master'},
-                {days:60, emoji:'💎', label:'Diamond Streak'},
-                {days:90, emoji:'👑', label:'Legend Status'},
-              ].map(m => {
-                const achieved = longest >= m.days;
-                return (
+              {[{days:7,emoji:'🔥',label:'Week Warrior'},{days:14,emoji:'⚡',label:'Fortnight Force'},{days:21,emoji:'🌟',label:'Habit Formed'},{days:30,emoji:'🏆',label:'Month Master'},{days:60,emoji:'💎',label:'Diamond Streak'},{days:90,emoji:'👑',label:'Legend Status'}].map(m=>{
+                const achieved=longest>=m.days;
+                return(
                   <div key={m.days} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',background:achieved?'white':'transparent',borderRadius:10,border:achieved?'1px solid #b5ceb5':'1px dashed #e8e4de'}}>
                     <span style={{fontSize:20,opacity:achieved?1:0.3}}>{m.emoji}</span>
                     <div style={{flex:1}}>
                       <div style={{fontSize:13,fontWeight:600,color:achieved?'#5a7a5a':'#aaa'}}>{m.label}</div>
                       <div style={{fontSize:11,color:'#888'}}>{m.days} days</div>
                     </div>
-                    {achieved && <div style={{fontSize:11,fontWeight:700,color:'#8aad8a'}}>✓</div>}
+                    {achieved&&<div style={{fontSize:11,fontWeight:700,color:'#8aad8a'}}>✓</div>}
                   </div>
                 );
               })}
             </div>
           </div>
         )}
-
-        <button onClick={onClose}
-          style={{width:'100%',marginTop:20,padding:13,background:'#8aad8a',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
+        <button onClick={onClose} style={{width:'100%',marginTop:20,padding:13,background:'#8aad8a',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
           Close
         </button>
       </div>
@@ -285,7 +458,6 @@ function SustainUnlockModal({ onClose }) {
         <p style={{fontSize:15,color:'#5a7a5a',lineHeight:1.7,marginBottom:24}}>
           You&apos;ve completed the 4-week Spring Wellness Program! Your foundation is built. Now it&apos;s time to sustain what you&apos;ve created.
         </p>
-        
         <div style={{background:'white',borderRadius:16,padding:20,marginBottom:24,textAlign:'left'}}>
           <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:1,color:'#888',marginBottom:14}}>What&apos;s Next</div>
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
@@ -302,9 +474,7 @@ function SustainUnlockModal({ onClose }) {
             ))}
           </div>
         </div>
-
-        <button onClick={onClose}
-          style={{width:'100%',padding:14,background:'linear-gradient(135deg,#8aad8a,#5a7a5a)',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif',boxShadow:'0 4px 14px rgba(90,122,90,0.3)'}}>
+        <button onClick={onClose} style={{width:'100%',padding:14,background:'linear-gradient(135deg,#8aad8a,#5a7a5a)',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif',boxShadow:'0 4px 14px rgba(90,122,90,0.3)'}}>
           Continue Building 🌱
         </button>
       </div>
@@ -318,6 +488,7 @@ export default function Dashboard() {
     typeof window !== 'undefined' ? window.innerWidth > 768 : true
   );
   const [shopOpen, setShopOpen]     = useState(false);
+  const [companionView, setCompanionView] = useState('companion'); // 'companion' | 'decorate'
   const [donateOpen, setDonateOpen] = useState(false);
   const [reflOpen, setReflOpen]     = useState(false);
   const [refl, setRefl]             = useState({ worked:'', challenging:'', energy:3 });
@@ -325,7 +496,6 @@ export default function Dashboard() {
   const [loading, setLoading]       = useState(true);
   const [week, setWeek]             = useState(1);
   const [day, setDay]               = useState(1);
-  const [notifs, setNotifs]         = useState({ habits:true, community:true, streaks:true, reflection:false });
   const [customHabitOpen, setCustomHabitOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen]       = useState(false);
   const [statsLogOpen, setStatsLogOpen] = useState(false);
@@ -337,7 +507,18 @@ export default function Dashboard() {
       return parsed.date === today ? parsed : { date: today };
     } catch { return { date: new Date().toISOString().split('T')[0] }; }
   });
-  const [statsForm, setStatsForm] = useState({ sleep:'', mindfulness:'', steps:'', water:'' });
+
+  const [ownedScenes, setOwnedScenes] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('bloom-owned-scenes') || '["default"]'); } catch { return ['default']; }
+  });
+  const [tapState, setTapState] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('bloom-love-taps') || '{}');
+      const THREE_HOURS = 3 * 60 * 60 * 1000;
+      if (!s.windowStart || (Date.now() - s.windowStart) >= THREE_HOURS) return { windowStart: Date.now(), count: 0 };
+      return s;
+    } catch { return { windowStart: Date.now(), count: 0 }; }
+  });
 
   const [routineFreqs, setRoutineFreqs] = useState(() => {
     try { return JSON.parse(localStorage.getItem('bloom-routine-freqs') || '{}'); } catch { return {}; }
@@ -349,11 +530,11 @@ export default function Dashboard() {
   const [selectedDay, setSelectedDay] = useState(null);
   const [dayStats, setDayStats]       = useState(null);
   const [dayStatsLoading, setDayStatsLoading] = useState(false);
-  const [streaks, setStreaks]         = useState({}); // { habit_key: { current_streak, longest_streak } }
+  const [streaks, setStreaks]         = useState({});
   const [removedHabits, setRemovedHabits] = useState(() => {
     try { return JSON.parse(localStorage.getItem('bloom-removed-habits') || '[]'); } catch { return []; }
   });
-  const [weeklyData, setWeeklyData]   = useState({}); // { 'YYYY-MM-DD': ['habit_key1', 'habit_key2'] }
+  const [weeklyData, setWeeklyData]   = useState({});
   const [streakHistoryOpen, setStreakHistoryOpen] = useState(false);
   const [streakHistoryHabit, setStreakHistoryHabit] = useState(null);
   const [sustainMode, setSustainMode] = useState(false);
@@ -375,7 +556,6 @@ export default function Dashboard() {
   const chronotype    = useStore(s=>s.chronotype);
   const lvl           = useStore(s=>s.lifestyleLevel);
   const avEmoji       = useStore(s=>s.avatarEmoji);
-  const avName        = useStore(s=>s.avatarName);
   const health        = useStore(s=>s.health);
   const coins         = useStore(s=>s.coins);
   const ge            = useStore(s=>s.greenEnergy);
@@ -390,11 +570,9 @@ export default function Dashboard() {
   const checkBadHabitDailyReset = useStore(s=>s.checkBadHabitDailyReset);
   const applyDailyDecay  = useStore(s=>s.applyDailyDecay);
   const lastDecayDate    = useStore(s=>s.lastDecayDate);
-  const energyMode          = useStore(s => s.energyMode);
-  const habitsByMode        = useStore(s => s.habitsByMode);
-  const energyModeSetupDone = useStore(s => s.energyModeSetupDone);
-
-  // Avatar customisation fields (for DiceBear URL)
+  const energyMode          = useStore(s=>s.energyMode);
+  const habitsByMode        = useStore(s=>s.habitsByMode);
+  const energyModeSetupDone = useStore(s=>s.energyModeSetupDone);
   const avatarSkin      = useStore(s=>s.avatarSkin);
   const avatarHair      = useStore(s=>s.avatarHair);
   const avatarHairColor = useStore(s=>s.avatarHairColor);
@@ -402,6 +580,9 @@ export default function Dashboard() {
   const avatarMouth     = useStore(s=>s.avatarMouth);
   const avatarAccessory = useStore(s=>s.avatarAccessory);
   const avatarBg        = useStore(s=>s.avatarBg);
+  const avatarScene     = useStore(s=>s.avatarScene);
+  const setAvatarScene  = useStore(s=>s.setAvatarScene);
+  const isRestDayToday  = useStore(s=>s.isRestDayToday);
 
   const isAdmin = userId === ADMIN_USER_ID;
 
@@ -410,6 +591,7 @@ export default function Dashboard() {
     : { name: archetypeName||'Spring Wellness Program', icon: archetypeIcon||'🌿' };
 
   const lvMap = { foundation:'Foundation', building:'Building', optimization:'Optimisation' };
+
   function removeHabit(habitKey){
     const updated=[...removedHabits, habitKey];
     setRemovedHabits(updated);
@@ -440,6 +622,83 @@ export default function Dashboard() {
     if(userId){ load(); loadInv(); loadStreaks(); loadWeeklyData(); loadBadHabitsFromDb(); }
   },[userId]);
 
+  // ── Award health when a self-care goal is reached (once/day per stat) ──
+  async function awardStatHealth(stats) {
+    const awarded = { ...(stats.awarded || {}) };
+    let gained = 0;
+    const labels = [];
+    for (const key of Object.keys(STAT_GOALS)) {
+      const v = stats[key];
+      if (v != null && !awarded[key] && STAT_GOALS[key].hit(v)) {
+        awarded[key] = true;
+        gained += STAT_GOALS[key].reward;
+        labels.push(STAT_GOALS[key].label);
+      }
+    }
+    if (!gained) return stats;
+    const nh = Math.min(100, health + gained);
+    setStats({ health: nh });
+    if (userId) {
+      try { await supabase.from('user_stats').update({ health: nh }).eq('user_id', userId); } catch {}
+    }
+    toast(labels.length === 1
+      ? `${labels[0]} goal reached · +${gained} health ❤️`
+      : `${labels.length} goals reached · +${gained} health ❤️`);
+    return { ...stats, awarded };
+  }
+
+  // ── Show yourself some love tap mechanic ──
+  async function handleLoveTap(e) {
+    const THREE_HOURS = 3 * 60 * 60 * 1000;
+    const now = Date.now();
+    let current = tapState;
+    if ((now - current.windowStart) >= THREE_HOURS) current = { windowStart: now, count: 0 };
+    if (current.count >= 10) {
+      const minsLeft = Math.ceil((THREE_HOURS - (now - current.windowStart)) / 60000);
+      toast(`💕 Come back in ${minsLeft} min for more self-love!`);
+      return;
+    }
+    const newCount = current.count + 1;
+    const newState = { windowStart: current.windowStart, count: newCount };
+    setTapState(newState);
+    localStorage.setItem('bloom-love-taps', JSON.stringify(newState));
+    // Floating heart
+    const container = document.getElementById('avatar-hearts');
+    if (container) {
+      const heart = document.createElement('div');
+      heart.textContent = ['💕','❤️','💚','🌿','✨'][Math.floor(Math.random()*5)];
+      const rect = container.getBoundingClientRect();
+      const x = e ? (e.clientX - rect.left - 10) : 55;
+      const y = e ? (e.clientY - rect.top - 10) : 55;
+      heart.style.cssText = `position:absolute;left:${x}px;top:${y}px;font-size:22px;pointer-events:none;animation:heartFloat 1.2s ease-out forwards;z-index:10;`;
+      container.appendChild(heart);
+      setTimeout(()=>heart.remove(), 1200);
+    }
+    if (newCount === 10) {
+      const nh = Math.min(100, health + 1);
+      setStats({ health: nh });
+      if (userId) { try { await supabase.from('user_stats').update({ health: nh }).eq('user_id', userId); } catch {} }
+      toast('💕 10 taps of self-love · +1 health!');
+    }
+  }
+
+  // ── Buy or activate a scenery ──
+  async function buyScene(scene) {
+    const alreadyOwned = ownedScenes.includes(scene.key) || scene.cost === 0;
+    if (!alreadyOwned) {
+      if (coins < scene.cost) { toast('🪙 Not enough coins!'); return; }
+      const nc = coins - scene.cost;
+      await supabase.from('user_stats').update({ coins: nc }).eq('user_id', userId);
+      setStats({ coins: nc });
+      const updated = [...ownedScenes, scene.key];
+      setOwnedScenes(updated);
+      localStorage.setItem('bloom-owned-scenes', JSON.stringify(updated));
+      toast(`🎨 ${scene.name} unlocked!`);
+    }
+    setAvatarScene(scene.key);
+    if (userId) { try { await supabase.from('users').update({ avatar_scene: scene.key }).eq('id', userId); } catch {} }
+  }
+
   async function load() {
     try {
       const {data:u} = await supabase.from('users').select('*').eq('id',userId).single();
@@ -447,13 +706,10 @@ export default function Dashboard() {
         let sd = u.program_start_date;
         if(!sd){ sd=new Date().toISOString(); await supabase.from('users').update({program_start_date:sd}).eq('id',userId); }
         const w=getCurrentWeek(sd), d=getDayOfWeek(sd);
-        
-        // Check if user has completed Week 4 and should enter Sustain Mode
-        // Safety: Check if sustain_mode column exists (in case migration hasn't run)
         const inSustainMode = u.sustain_mode !== undefined ? (u.sustain_mode || false) : false;
         setSustainMode(inSustainMode);
-        
-        // If week > 4 and not yet in sustain mode, trigger unlock
+        // Load saved scene
+        if (u.avatar_scene) setAvatarScene(u.avatar_scene);
         if(w > 4 && !inSustainMode){
           try {
             await supabase.from('users').update({sustain_mode:true}).eq('id',userId);
@@ -463,26 +719,19 @@ export default function Dashboard() {
             console.warn('sustain_mode column not found - run add_sustain_mode.sql migration');
           }
         }
-        
-        // In Sustain Mode, keep showing Week 4 habits
         const displayWeek = inSustainMode ? 4 : Math.min(w, 4);
-        setWeek(displayWeek); 
+        setWeek(displayWeek);
         setDay(d);
-        
-        // Reflection prompts only during weeks 1-4
         if(!inSustainMode && d===1&&w>1&&w<=4&&(u.current_week||1)<w){
           const {data:r}=await supabase.from('weekly_reflections').select('id').eq('user_id',userId).eq('week_number',w-1).single();
           if(!r) setReflOpen(true);
         }
-        
         const src = archetypeKey||u.chronotype||'steadybuilder';
         setHabits(getHabitsForUser(src, displayWeek));
         if((u.current_week||1)!==displayWeek && !inSustainMode) await supabase.from('users').update({current_week:displayWeek}).eq('id',userId);
       }
       const {data:st}=await supabase.from('user_stats').select('*').eq('user_id',userId).single();
       if(st) setStats({health:st.health,coins:st.coins,greenEnergy:st.green_energy,level:st.level});
-
-      // Apply nightly health decay (only fires once per day, skipped on rest days)
       const { decayed, newHealth } = applyDailyDecay();
       if(decayed){
         await supabase.from('user_stats').update({ health: newHealth }).eq('user_id', userId);
@@ -562,7 +811,6 @@ export default function Dashboard() {
 
   async function loadWeeklyData(){
     if(!userId) return;
-    // Get completions for the past 7 days
     const dates = [];
     for(let i=6; i>=0; i--){
       const d = new Date();
@@ -583,8 +831,6 @@ export default function Dashboard() {
     }
   }
 
-  // Load bad habits from DB on mount (Zustand already has them persisted locally,
-  // but this ensures any habits added on another device are synced)
   async function loadBadHabitsFromDb(){
     if(!userId) return;
     try {
@@ -592,18 +838,8 @@ export default function Dashboard() {
       if(data && data.length > 0){
         const { badHabits: existing } = useStore.getState();
         data.forEach(row => {
-          const bh = {
-            key: row.key,
-            name: row.name,
-            emoji: row.emoji,
-            type: row.type,
-            unit: row.unit,
-            threshold: row.threshold,
-            healthPenalty: row.health_penalty,
-          };
-          if(!existing.some(h => h.key === row.key)){
-            useStore.getState().addBadHabit(bh);
-          }
+          const bh = { key:row.key, name:row.name, emoji:row.emoji, type:row.type, unit:row.unit, threshold:row.threshold, healthPenalty:row.health_penalty };
+          if(!existing.some(h => h.key === row.key)) useStore.getState().addBadHabit(bh);
         });
       }
     } catch(e){ console.error('loadBadHabitsFromDb', e); }
@@ -614,35 +850,22 @@ export default function Dashboard() {
     const today=new Date().toISOString().split('T')[0];
     const yesterday=new Date(Date.now()-86400000).toISOString().split('T')[0];
     const existing=streaks[habitKey];
-
     if(completing){
       let newStreak=1;
       let longest=existing?.longest_streak||0;
-
-      if(existing?.last_completed===yesterday){
-        // Consecutive day — increment
-        newStreak=(existing.current_streak||0)+1;
-      } else if(existing?.last_completed===today){
-        // Already completed today — don't change
-        return;
-      }
-      // else missed a day — reset to 1
-
+      if(existing?.last_completed===yesterday){ newStreak=(existing.current_streak||0)+1; }
+      else if(existing?.last_completed===today){ return; }
       longest=Math.max(longest, newStreak);
-
       await supabase.from('habit_streaks').upsert(
         { user_id:userId, habit_key:habitKey, current_streak:newStreak, longest_streak:longest, last_completed:today },
         { onConflict:'user_id,habit_key' }
       );
       setStreaks(prev=>({...prev,[habitKey]:{...prev[habitKey],current_streak:newStreak,longest_streak:longest,last_completed:today}}));
-
-      // Milestone toasts
       if(newStreak===7)  toast(`🔥 7-day streak on ${habitKey.replace(/_/g,' ')}! Keep going!`);
       if(newStreak===14) toast(`⚡ 14-day streak! You're on fire!`);
       if(newStreak===21) toast(`🌟 21 days — this is now a habit!`);
       if(newStreak===30) toast(`🏆 30-day streak! Incredible!`);
     } else {
-      // Unmarking — only reset if last_completed was today
       if(existing?.last_completed===today){
         const newStreak=Math.max(0,(existing.current_streak||1)-1);
         await supabase.from('habit_streaks').upsert(
@@ -657,20 +880,6 @@ export default function Dashboard() {
   async function toggleHabit(h){
     const isD=done.includes(h.key);
     toggleH(h.key);
-    if(h.isCustom){
-      if(!isD){
-        const nc=coins+h.coins, ng=ge+h.ge, nh=Math.min(100,health+3);
-        setStats({coins:nc,greenEnergy:ng,health:nh});
-        if(userId) await supabase.from('user_stats').update({coins:nc,green_energy:ng,health:nh}).eq('user_id',userId);
-        toast(`✅ +${h.coins} 🪙${h.ge>0?` +${h.ge} ⚡`:''}`);
-      } else {
-        const nc=Math.max(0,coins-h.coins), ng=Math.max(0,ge-h.ge), nh=Math.max(0,health-2);
-        setStats({coins:nc,greenEnergy:ng,health:nh});
-        if(userId) await supabase.from('user_stats').update({coins:nc,green_energy:ng,health:nh}).eq('user_id',userId);
-        toast('↩️ Habit unmarked');
-      }
-      return;
-    }
     const today=new Date().toISOString().split('T')[0];
     if(!isD){
       if(userId) await supabase.from('habit_completions').insert({user_id:userId,habit_key:h.key,date:today});
@@ -678,7 +887,7 @@ export default function Dashboard() {
       if(userId) await supabase.from('user_stats').update({coins:nc,green_energy:ng,health:nh}).eq('user_id',userId);
       setStats({coins:nc,greenEnergy:ng,health:nh});
       await updateStreak(h.key, true);
-      loadWeeklyData(); // Refresh week-at-a-glance
+      loadWeeklyData();
       toast(`✅ +${h.coins} 🪙${h.ge>0?` +${h.ge} ⚡`:''}`);
     } else {
       if(userId) await supabase.from('habit_completions').delete().eq('user_id',userId).eq('habit_key',h.key).eq('date',today);
@@ -686,7 +895,7 @@ export default function Dashboard() {
       if(userId) await supabase.from('user_stats').update({coins:nc,green_energy:ng,health:nh}).eq('user_id',userId);
       setStats({coins:nc,greenEnergy:ng,health:nh});
       await updateStreak(h.key, false);
-      loadWeeklyData(); // Refresh week-at-a-glance
+      loadWeeklyData();
       toast('↩️ Habit unmarked');
     }
   }
@@ -774,105 +983,62 @@ export default function Dashboard() {
     </div>
   );
 
-  // ── Notification button with confirmation state ────────────
   const NotifButton = () => {
     const [notifState, setNotifState] = useState(() => {
       if (typeof window !== 'undefined' && Notification?.permission === 'granted') return 'granted';
       if (typeof window !== 'undefined' && Notification?.permission === 'denied') return 'denied';
       return 'idle';
     });
-
     async function handleEnable() {
       setNotifState('loading');
-
-      // Safety timeout — never get stuck on loading
       const timeout = setTimeout(() => setNotifState('idle'), 8000);
-
       try {
-        // Use native browser API as primary — resolves reliably on all platforms
         const permission = await Notification.requestPermission();
         clearTimeout(timeout);
-
         if (permission === 'granted') {
           setNotifState('granted');
           toast('🔔 Notifications enabled!');
-          // Register with OneSignal in background
           if (window.OneSignalDeferred) {
             window.OneSignalDeferred.push(async function(OneSignal) {
               try {
                 await OneSignal.Notifications.requestPermission();
                 const id = OneSignal.User.PushSubscription.id;
-                if (id && userId) {
-                  await supabase.from('users').update({ onesignal_id: id }).eq('id', userId);
-                }
+                if (id && userId) await supabase.from('users').update({ onesignal_id: id }).eq('id', userId);
               } catch(e) { console.error('OneSignal secondary error:', e); }
             });
           }
-        } else {
-          setNotifState('denied');
-        }
-      } catch(e) {
-        clearTimeout(timeout);
-        console.error(e);
-        setNotifState('denied');
-      }
+        } else { setNotifState('denied'); }
+      } catch(e) { clearTimeout(timeout); console.error(e); setNotifState('denied'); }
     }
-
     const states = {
       idle:    { label: '🔔 Enable notifications', bg: '#1a2e1a', color: 'white', clickable: true },
       loading: { label: '⏳ Waiting for permission...', bg: '#3a5a3a', color: 'white', clickable: false },
       granted: { label: '✅ Notifications enabled', bg: '#8aad8a', color: 'white', clickable: false },
       denied:  { label: '❌ Blocked — enable in browser settings', bg: '#e07070', color: 'white', clickable: false },
     };
-
     const s = states[notifState];
-
     return (
       <div style={{ marginBottom: 16 }}>
-        <button
-          onClick={s.clickable ? handleEnable : undefined}
-          style={{ width:'100%', padding:'13px 20px', background:s.bg, color:s.color, border:'none', borderRadius:12, fontSize:13, fontWeight:600, cursor:s.clickable?'pointer':'default', fontFamily:'DM Sans, sans-serif', transition:'all 0.3s', textAlign:'center' }}
-        >
+        <button onClick={s.clickable ? handleEnable : undefined}
+          style={{ width:'100%', padding:'13px 20px', background:s.bg, color:s.color, border:'none', borderRadius:12, fontSize:13, fontWeight:600, cursor:s.clickable?'pointer':'default', fontFamily:'DM Sans, sans-serif', transition:'all 0.3s', textAlign:'center' }}>
           {s.label}
         </button>
-        {notifState === 'granted' && (
-          <p style={{ fontSize:11, color:'#5a7a5a', marginTop:6, textAlign:'center' }}>
-            You&apos;ll receive habit reminders and community updates 🌱
-          </p>
-        )}
-        {notifState === 'denied' && (
-          <p style={{ fontSize:11, color:'#888', marginTop:6, textAlign:'center' }}>
-            iPhone: Settings → Safari → scroll to your site → Notifications → Allow
-          </p>
-        )}
+        {notifState === 'granted' && <p style={{ fontSize:11, color:'#5a7a5a', marginTop:6, textAlign:'center' }}>You&apos;ll receive habit reminders and community updates 🌱</p>}
+        {notifState === 'denied' && <p style={{ fontSize:11, color:'#888', marginTop:6, textAlign:'center' }}>iPhone: Settings → Safari → scroll to your site → Notifications → Allow</p>}
       </div>
     );
   };
 
-  // ── Dashboard quick post (admin only) ─────────────────────
   const DashboardPostCard=()=>{
     const [text, setText] = useState('');
     const [posting, setPosting] = useState(false);
-
     async function submit() {
       if (!text.trim() || !userId) return;
       setPosting(true);
-      const { data, error } = await supabase
-        .from('community_posts')
-        .insert({
-          user_id: userId,
-          user_name: name || 'J Bea',
-          user_avatar_emoji: avEmoji || '🌿',
-          content: text.trim(),
-          post_type: 'check_in',
-          parent_id: null,
-        })
-        .select()
-        .single();
+      const { data, error } = await supabase.from('community_posts').insert({ user_id:userId, user_name:name||'J Bea', user_avatar_emoji:avEmoji||'🌿', content:text.trim(), post_type:'check_in', parent_id:null }).select().single();
       if (data && !error) { setText(''); toast('✅ Posted to community!'); }
       setPosting(false);
     }
-
     return (
       <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20}}>
         <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>Post to Community</div>
@@ -895,62 +1061,90 @@ export default function Dashboard() {
   };
 
   const AvatarCard=()=>{
-    // Build DiceBear URL — params must match actual personas schema values
+    const THREE_HOURS = 3*60*60*1000;
+    const now = Date.now();
+    const windowExpired = (now - tapState.windowStart) >= THREE_HOURS;
+    const activeTaps = windowExpired ? 0 : tapState.count;
+    const tapsFull = activeTaps >= 10;
+
+    const baseEyes = (avatarEyes==='glasses'||avatarEyes==='sunglasses') ? avatarEyes : 'open';
+    const { mouth:moodMouth, eyes:moodEyes, label:moodLabel } = getMoodExpression(health, baseEyes, { isRestDay: isRestDayToday });
+
     const p = new URLSearchParams();
-    p.set('seed', name || 'wellness');
+    p.set('seed', name||'wellness');
     p.set('skinColor', avatarSkin);
     p.set('hair', avatarHair);
     p.set('hairColor', avatarHairColor);
-    p.set('eyes', avatarEyes);
-    p.set('mouth', avatarMouth);
+    p.set('eyes', moodEyes);
+    p.set('mouth', moodMouth);
     p.set('backgroundColor', avatarBg);
-    p.set('body', avatarAccessory || 'rounded');
-    p.set('facialHairProbability', '0');
+    p.set('body', avatarAccessory||'rounded');
+    p.set('facialHairProbability','0');
     const dicebearUrl = `https://api.dicebear.com/9.x/personas/svg?${p.toString()}`;
 
+    const currentScene = SCENES.find(s=>s.key===avatarScene) || SCENES[0];
+
     return(
-    <div style={{background:'linear-gradient(160deg,#e8f0e8,#f0ede8)',border:'1.5px solid #b5ceb5',borderRadius:20,padding:22,textAlign:'center'}}>
-      <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:16}}>Your Companion</div>
-      <div style={{position:'relative',width:130,height:130,margin:'0 auto 16px'}}>
-        <div style={{width:130,height:130,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',display:'flex',alignItems:'center',justifyContent:'center',border:'3px solid rgba(255,255,255,0.7)',boxShadow:'0 8px 28px rgba(90,122,90,0.18)',animation:'breathe 4s ease-in-out infinite',cursor:'pointer',position:'relative',overflow:'hidden'}}>
-          <object type="image/svg+xml" data={dicebearUrl} style={{width:'100%',height:'100%',objectFit:'cover',pointerEvents:'none'}}>
-            <span style={{fontSize:54}}>🧑‍🌿</span>
-          </object>
-          {equipped&&<div style={{position:'absolute',top:-6,right:-2,fontSize:18}}>{SHOP_ITEMS.find(i=>i.key===equipped.item_key)?.icon}</div>}
+      <div style={{background:currentScene.gradient,border:'1.5px solid #b5ceb5',borderRadius:20,padding:22,textAlign:'center',transition:'background 0.6s ease'}}>
+        <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'rgba(0,0,0,0.4)',marginBottom:16}}>Your Companion</div>
+
+        {/* Tappable avatar with hearts overlay */}
+        <div id="avatar-hearts" onClick={handleLoveTap}
+          style={{position:'relative',width:130,height:130,margin:'0 auto 10px',cursor:tapsFull?'default':'pointer'}}>
+          <div style={{width:130,height:130,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',display:'flex',alignItems:'center',justifyContent:'center',border:'3px solid rgba(255,255,255,0.7)',boxShadow:'0 8px 28px rgba(90,122,90,0.18)',animation:'breathe 4s ease-in-out infinite',position:'relative',overflow:'hidden'}}>
+            <object type="image/svg+xml" data={dicebearUrl} style={{width:'100%',height:'100%',objectFit:'cover',pointerEvents:'none'}}>
+              <span style={{fontSize:54}}>🧑‍🌿</span>
+            </object>
+          </div>
+          <AvatarAccessoryOverlay itemKey={equipped?.item_key||null}/>
+          <div style={{position:'absolute',bottom:4,right:4,background:'#d4af6a',color:'white',fontSize:11,fontWeight:700,padding:'3px 8px',borderRadius:8,zIndex:3}}>Lv.{level}</div>
         </div>
-        <div style={{position:'absolute',bottom:4,right:4,background:'#d4af6a',color:'white',fontSize:11,fontWeight:700,padding:'3px 8px',borderRadius:8}}>Lv.{level}</div>
-      </div>
-      <div style={{fontFamily:'Instrument Serif,serif',fontSize:17,marginBottom:2}}>{name}</div>
-      <div style={{fontSize:11,color:'#5a7a5a',marginBottom:3}}>{arch.icon} {arch.name}</div>
-      <div style={{fontSize:11,color:'#888',marginBottom:10}}>{mood}</div>
-      <button onClick={()=>setTab('settings')} style={{fontSize:11,color:'#8aad8a',background:'transparent',border:'1px solid #b5ceb5',borderRadius:99,padding:'4px 12px',cursor:'pointer',fontFamily:'DM Sans,sans-serif',fontWeight:600,marginBottom:12}}>
-        ✏️ Customise avatar
-      </button>
-      {[{label:'❤️ Health',val:health,fill:health>60?'linear-gradient(90deg,#70c070,#4ea84e)':health>30?'linear-gradient(90deg,#e8b84a,#d4a030)':'linear-gradient(90deg,#e07070,#c04040)'},{label:'📋 Today',val:pct,fill:'linear-gradient(90deg,#8aad8a,#5a7a5a)'}].map(b=>(
-        <div key={b.label} style={{marginBottom:8}}>
-          <div style={{display:'flex',justifyContent:'space-between',fontSize:11,fontWeight:500,marginBottom:3}}><span>{b.label}</span><span>{b.val}%</span></div>
-          <div style={{height:6,background:'#e8d9c4',borderRadius:99,overflow:'hidden'}}><div style={{height:'100%',width:`${b.val}%`,background:b.fill,borderRadius:99,transition:'width 0.8s'}}/></div>
+
+        {/* Tap progress bar */}
+        <div style={{marginBottom:10}}>
+          <div style={{fontSize:11,color:tapsFull?'rgba(0,0,0,0.3)':'#c4789a',marginBottom:5,fontWeight:500}}>
+            {tapsFull ? '💕 Come back later for more' : '💕 Show yourself some love'}
+          </div>
+          <div style={{display:'flex',gap:3,justifyContent:'center'}}>
+            {Array.from({length:10},(_,i)=>(
+              <div key={i} style={{width:7,height:7,borderRadius:'50%',background:i<activeTaps?'#e8a8b8':'rgba(0,0,0,0.12)',transition:'background 0.2s'}}/>
+            ))}
+          </div>
         </div>
-      ))}
-      <div style={{display:'flex',gap:8,marginTop:14}}>
-        {[{v:coins.toLocaleString(),l:'🪙 Coins',c:'#d4af6a'},{v:ge,l:'⚡ GE',c:'#38a855'}].map(x=>(
-          <div key={x.l} style={{flex:1,background:'white',border:'1.5px solid #e8e4de',borderRadius:10,padding:'9px 6px',textAlign:'center'}}>
-            <div style={{fontSize:15,fontWeight:700,fontFamily:'Syne,sans-serif',color:x.c}}>{x.v}</div>
-            <div style={{fontSize:10,color:'#888'}}>{x.l}</div>
+
+        <div style={{fontFamily:'Instrument Serif,serif',fontSize:17,marginBottom:2}}>{name}</div>
+        <div style={{fontSize:11,color:'rgba(0,0,0,0.5)',marginBottom:2}}>{arch.icon} {arch.name}</div>
+        <div style={{fontSize:11,color:'rgba(0,0,0,0.35)',marginBottom:10}}>{moodLabel}</div>
+
+        <button onClick={()=>setTab('settings')} style={{fontSize:11,color:'#5a7a5a',background:'rgba(255,255,255,0.5)',border:'1px solid #b5ceb5',borderRadius:99,padding:'4px 12px',cursor:'pointer',fontFamily:'DM Sans,sans-serif',fontWeight:600,marginBottom:12}}>
+          ✏️ Customise avatar
+        </button>
+
+        {[{label:'❤️ Health',val:health,fill:health>60?'linear-gradient(90deg,#70c070,#4ea84e)':health>30?'linear-gradient(90deg,#e8b84a,#d4a030)':'linear-gradient(90deg,#e07070,#c04040)'},{label:'📋 Today',val:pct,fill:'linear-gradient(90deg,#8aad8a,#5a7a5a)'}].map(b=>(
+          <div key={b.label} style={{marginBottom:8}}>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:11,fontWeight:500,marginBottom:3}}><span>{b.label}</span><span>{b.val}%</span></div>
+            <div style={{height:6,background:'rgba(0,0,0,0.1)',borderRadius:99,overflow:'hidden'}}><div style={{height:'100%',width:`${b.val}%`,background:b.fill,borderRadius:99,transition:'width 0.8s'}}/></div>
           </div>
         ))}
-      </div>
-      <div style={{background:'#e8d9c4',border:'1px solid #c4a882',borderRadius:10,padding:'8px 10px',fontSize:10,color:'#7a6040',marginTop:12,textAlign:'left',lineHeight:1.5}}>
-        🔬 Lally et al. (2010): habits form in 18–254 days — consistency is the key variable.
-      </div>
-      {isAdmin && lastDecayDate && (
-        <div style={{marginTop:8,fontSize:9,color:'#bbb',textAlign:'center'}}>
-          🕐 Decay last ran: {lastDecayDate}
-        </div>
-      )}
-    </div>
-  );};
 
+        <div style={{display:'flex',gap:8,marginTop:14}}>
+          {[{v:coins.toLocaleString(),l:'🪙 Coins',c:'#d4af6a'},{v:ge,l:'⚡ GE',c:'#38a855'}].map(x=>(
+            <div key={x.l} style={{flex:1,background:'rgba(255,255,255,0.6)',border:'1.5px solid rgba(255,255,255,0.8)',borderRadius:10,padding:'9px 6px',textAlign:'center'}}>
+              <div style={{fontSize:15,fontWeight:700,fontFamily:'Syne,sans-serif',color:x.c}}>{x.v}</div>
+              <div style={{fontSize:10,color:'#888'}}>{x.l}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{background:'rgba(232,217,196,0.6)',border:'1px solid rgba(196,168,130,0.5)',borderRadius:10,padding:'8px 10px',fontSize:10,color:'#7a6040',marginTop:12,textAlign:'left',lineHeight:1.5}}>
+          🔬 Lally et al. (2010): habits form in 18–254 days — consistency is the key variable.
+        </div>
+        {isAdmin && lastDecayDate && (
+          <div style={{marginTop:8,fontSize:9,color:'rgba(0,0,0,0.2)',textAlign:'center'}}>🕐 Decay last ran: {lastDecayDate}</div>
+        )}
+      </div>
+    );
+  };
 
   const HabitsGrid=()=>(
     <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:22}}>
@@ -979,8 +1173,6 @@ export default function Dashboard() {
           return(
             <div key={h.key} style={{border:`1.5px solid ${d?'#8aad8a':'#e8e4de'}`,borderLeft:h.ge>0?'3px solid #4ecb71':h.isCustom?'3px solid #d4af6a':`1.5px solid ${d?'#8aad8a':'#e8e4de'}`,borderRadius:13,padding:13,background:d?'#f3f8f3':'white',transition:'all 0.2s',position:'relative'}}>
               {h.isCustom&&<div style={{position:'absolute',top:8,right:8,fontSize:9,fontWeight:700,color:'#d4af6a',textTransform:'uppercase',letterSpacing:0.5}}>custom</div>}
-
-              {/* Top row — emoji, streak, check */}
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:7}}>
                 <div style={{display:'flex',alignItems:'center',gap:6}}>
                   <span style={{fontSize:20,cursor:'pointer'}} onClick={()=>toggleHabit(h)}>{h.emoji}</span>
@@ -992,20 +1184,16 @@ export default function Dashboard() {
                   )}
                 </div>
                 <div style={{display:'flex',alignItems:'center',gap:6}}>
-                  {/* Remove button */}
                   {!h.isCustom&&(
-                    <button
-                      onClick={e=>{e.stopPropagation();if(window.confirm(`Remove "${h.name}" from your plan? You can restore it anytime.`)) removeHabit(h.key);}}
+                    <button onClick={e=>{e.stopPropagation();if(window.confirm(`Remove "${h.name}" from your plan? You can restore it anytime.`)) removeHabit(h.key);}}
                       title="Remove from plan"
                       style={{width:18,height:18,borderRadius:'50%',border:'1px solid #e8e4de',background:'white',cursor:'pointer',fontSize:10,color:'#bbb',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all 0.2s'}}
                       onMouseOver={e=>{e.currentTarget.style.borderColor='#e07070';e.currentTarget.style.color='#e07070';}}
-                      onMouseOut={e=>{e.currentTarget.style.borderColor='#e8e4de';e.currentTarget.style.color='#bbb';}}
-                    >✕</button>
+                      onMouseOut={e=>{e.currentTarget.style.borderColor='#e8e4de';e.currentTarget.style.color='#bbb';}}>✕</button>
                   )}
                   <div onClick={()=>toggleHabit(h)} style={{width:21,height:21,borderRadius:'50%',border:`2px solid ${d?'#8aad8a':'#e8e4de'}`,background:d?'#8aad8a':'white',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:d?'white':'transparent',cursor:'pointer'}}>✓</div>
                 </div>
               </div>
-
               <div onClick={()=>toggleHabit(h)} style={{cursor:'pointer'}}>
                 <div style={{fontSize:13,fontWeight:500,marginBottom:5}}>{h.name}</div>
                 <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
@@ -1015,14 +1203,11 @@ export default function Dashboard() {
                   {longest>0&&<span style={{fontSize:10,color:'#aaa'}}>best: {longest}d</span>}
                 </div>
               </div>
-              {/* View Streak button */}
               {longest>0&&(
-                <button
-                  onClick={e=>{e.stopPropagation();setStreakHistoryHabit(h);setStreakHistoryOpen(true);}}
+                <button onClick={e=>{e.stopPropagation();setStreakHistoryHabit(h);setStreakHistoryOpen(true);}}
                   style={{width:'100%',marginTop:8,padding:'6px',background:'transparent',border:'1px dashed #e8e4de',borderRadius:8,fontSize:10,fontWeight:600,color:'#888',cursor:'pointer',fontFamily:'DM Sans,sans-serif',transition:'all 0.2s'}}
                   onMouseOver={e=>{e.currentTarget.style.borderColor='#8aad8a';e.currentTarget.style.color='#5a7a5a';}}
-                  onMouseOut={e=>{e.currentTarget.style.borderColor='#e8e4de';e.currentTarget.style.color='#888';}}
-                >
+                  onMouseOut={e=>{e.currentTarget.style.borderColor='#e8e4de';e.currentTarget.style.color='#888';}}>
                   📊 View streak history
                 </button>
               )}
@@ -1030,8 +1215,6 @@ export default function Dashboard() {
           );
         })}
       </div>
-
-      {/* Removed habits — restore section */}
       {removedHabits.length>0&&(
         <div style={{marginTop:14,padding:'10px 14px',background:'#fdf8f3',border:'1px solid #e8d9c4',borderRadius:12}}>
           <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:1,color:'#c4a882',marginBottom:8}}>Removed from your plan</div>
@@ -1047,7 +1230,6 @@ export default function Dashboard() {
           </div>
         </div>
       )}
-
       <div style={{marginTop:14,padding:'11px 14px',background:'#f7f3ed',borderRadius:12}}>
         <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:5}}><span>Today&apos;s Progress</span><span style={{fontWeight:600}}>{done.length}/{allHabits.length} complete</span></div>
         <div style={{height:7,background:'#e8e4de',borderRadius:99,overflow:'hidden'}}><div style={{height:'100%',width:`${pct}%`,background:'linear-gradient(90deg,#8aad8a,#5a7a5a)',borderRadius:99,transition:'width 0.5s'}}/></div>
@@ -1065,16 +1247,24 @@ export default function Dashboard() {
         {sidebarOpen && (
           <>
             <div style={{height:44,marginBottom:8}}/>
-            {NAV.filter(n => !n.adminOnly || isAdmin).map(n=>(
-              <button key={n.key} onClick={()=>setTab(n.key)} title={n.label}
-                style={{width:'100%',height:44,borderRadius:12,background:tab===n.key?'#2d5a2d':'transparent',border:'none',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',gap:12,padding:'0 14px',color:tab===n.key?'white':'#6a9a6a',transition:'all 0.2s',position:'relative',fontFamily:'DM Sans,sans-serif',fontWeight:tab===n.key?600:400}}>
+            {NAV.filter(n => !n.adminOnly || isAdmin).map(n=>{
+              const active = tab===n.key || groupOf(tab)===n.key;
+              const go = ()=>{
+                if(n.key==='more'){ setTab('nourish'); return; }
+                if(n.key==='companion'){ setCompanionView('companion'); }
+                setTab(n.key);
+              };
+              return(
+              <button key={n.key} onClick={go} title={n.label}
+                style={{width:'100%',height:44,borderRadius:12,background:active?'#2d5a2d':'transparent',border:'none',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',gap:12,padding:'0 14px',color:active?'white':'#6a9a6a',transition:'all 0.2s',position:'relative',fontFamily:'DM Sans,sans-serif',fontWeight:active?600:400}}>
                 <span style={{fontSize:18,flexShrink:0}}>{n.icon}</span>
                 <span>{n.label}</span>
                 {n.key==='community'&&<div style={{position:'absolute',top:10,left:26,width:7,height:7,background:'#e07070',borderRadius:'50%',border:'2px solid #1a2e1a'}}/>}
               </button>
-            ))}
+              );
+            })}
             <div style={{flex:1}}/>
-            <button onClick={()=>setShopOpen(true)}
+            <button onClick={()=>{ setCompanionView('decorate'); setTab('companion'); }}
               style={{width:'100%',height:44,borderRadius:12,background:'transparent',border:'none',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',gap:12,padding:'0 14px',color:'#6a9a6a',fontFamily:'DM Sans,sans-serif'}}>
               <span style={{fontSize:18}}>🛍</span><span>Shop</span>
             </button>
@@ -1101,7 +1291,7 @@ export default function Dashboard() {
           onMouseOut={e=>e.currentTarget.style.borderColor='#e8e4de'}>
           ⭐ Feedback
         </button>
-        <div onClick={()=>setShopOpen(true)} style={{display:'flex',alignItems:'center',gap:6,background:'#f7f3ed',border:'1.5px solid #e8e4de',borderRadius:99,padding:'6px 14px',cursor:'pointer',fontSize:13,fontWeight:600}}>
+        <div onClick={()=>{ setCompanionView('decorate'); setTab('companion'); }} style={{display:'flex',alignItems:'center',gap:6,background:'#f7f3ed',border:'1.5px solid #e8e4de',borderRadius:99,padding:'6px 14px',cursor:'pointer',fontSize:13,fontWeight:600}}>
           🪙 {coins.toLocaleString()}
         </div>
         <div onClick={()=>setDonateOpen(true)} style={{display:'flex',alignItems:'center',gap:6,background:'#f0fdf4',border:'1.5px solid #4ecb71',borderRadius:99,padding:'6px 14px',cursor:'pointer',fontSize:13,fontWeight:600,color:'#276a3a'}}>
@@ -1111,6 +1301,54 @@ export default function Dashboard() {
     </div>
   );
 
+  // Compact companion entry on Home — taps through to the Companion page.
+  const CompanionTile=()=>{
+    const baseEyes=(avatarEyes==='glasses'||avatarEyes==='sunglasses')?avatarEyes:'open';
+    const {mouth:mM,eyes:mE}=getMoodExpression(health,baseEyes,{isRestDay:isRestDayToday});
+    const p=new URLSearchParams();
+    p.set('seed',name||'wellness');p.set('skinColor',avatarSkin);p.set('hair',avatarHair);
+    p.set('hairColor',avatarHairColor);p.set('eyes',mE);p.set('mouth',mM);
+    p.set('backgroundColor',avatarBg);p.set('body',avatarAccessory||'rounded');p.set('facialHairProbability','0');
+    const url=`https://api.dicebear.com/9.x/personas/svg?${p.toString()}`;
+    const cs=SCENES.find(s=>s.key===avatarScene)||SCENES[0];
+    // Hunger peek from today's Nourish log
+    let hungry=false;
+    try{
+      const all=JSON.parse(localStorage.getItem('bloom-nourish')||'{}');
+      const tk=new Date().toISOString().split('T')[0];
+      const d=all[tk]||{categories:[],meals:{}};
+      const M={whole:25,mixed:22,processed:18,skipped:15};
+      const mp=['breakfast','lunch','dinner'].reduce((s,x)=>s+(M[d.meals?.[x]]||0),0);
+      const cp=(Math.min((d.categories||[]).length,5)/5)*25;
+      hungry=Math.min(100,Math.round(mp+cp))<40;
+    }catch{}
+    return(
+      <div onClick={()=>{setCompanionView('companion');setTab('companion');}}
+        style={{background:cs.gradient,border:'1.5px solid #b5ceb5',borderRadius:20,padding:18,textAlign:'center',cursor:'pointer',transition:'transform 0.15s'}}
+        onMouseOver={e=>e.currentTarget.style.transform='translateY(-2px)'}
+        onMouseOut={e=>e.currentTarget.style.transform='translateY(0)'}>
+        <div style={{position:'relative',width:96,height:96,margin:'0 auto 10px'}}>
+          <div style={{width:96,height:96,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',display:'flex',alignItems:'center',justifyContent:'center',border:'3px solid rgba(255,255,255,0.7)',boxShadow:'0 6px 20px rgba(90,122,90,0.18)',overflow:'hidden',animation:'breathe 4s ease-in-out infinite'}}>
+            <object type="image/svg+xml" data={url} style={{width:'100%',height:'100%',objectFit:'cover',pointerEvents:'none'}}><span style={{fontSize:40}}>🧑‍🌿</span></object>
+          </div>
+          <div style={{position:'absolute',bottom:2,right:2,background:'#d4af6a',color:'white',fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:8}}>Lv.{level}</div>
+          {hungry&&<div style={{position:'absolute',top:-2,left:-2,background:'white',border:'1.5px solid #e8c8a0',borderRadius:'50% 50% 50% 4px',width:28,height:28,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,boxShadow:'0 2px 8px rgba(0,0,0,0.12)'}}>🍽️</div>}
+        </div>
+        <div style={{fontFamily:'Instrument Serif,serif',fontSize:16,marginBottom:8}}>{name}</div>
+        <div style={{textAlign:'left',marginBottom:8}}>
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:10,fontWeight:500,marginBottom:3}}><span>❤️ Health</span><span>{health}%</span></div>
+          <div style={{height:6,background:'rgba(0,0,0,0.1)',borderRadius:99,overflow:'hidden'}}><div style={{height:'100%',width:`${health}%`,background:health>60?'linear-gradient(90deg,#70c070,#4ea84e)':health>30?'linear-gradient(90deg,#e8b84a,#d4a030)':'linear-gradient(90deg,#e07070,#c04040)',borderRadius:99}}/></div>
+        </div>
+        <div style={{display:'flex',gap:6,marginBottom:10}}>
+          {[{v:coins.toLocaleString(),l:'🪙',c:'#d4af6a'},{v:ge,l:'⚡',c:'#38a855'}].map(x=>(
+            <div key={x.l} style={{flex:1,background:'rgba(255,255,255,0.6)',borderRadius:9,padding:'6px 4px'}}><div style={{fontSize:13,fontWeight:700,fontFamily:'Syne,sans-serif',color:x.c}}>{x.v}</div><div style={{fontSize:9,color:'#888'}}>{x.l}</div></div>
+          ))}
+        </div>
+        <div style={{fontSize:11,color:'#5a7a5a',fontWeight:600,background:'rgba(255,255,255,0.55)',border:'1px solid #b5ceb5',borderRadius:99,padding:'6px 12px'}}>Visit your companion →</div>
+      </div>
+    );
+  };
+
   const TabDashboard=()=>{
     const today=new Date();
     const wdays=Array.from({length:7},(_,i)=>{
@@ -1119,28 +1357,19 @@ export default function Dashboard() {
       const dateStr=d.toISOString().split('T')[0];
       const completedKeys=weeklyData[dateStr]||[];
       const completedCount=completedKeys.length;
-      return{
-        n:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()],
-        num:d.getDate(),
-        today:d.toDateString()===today.toDateString(),
-        dateStr,
-        completedCount,
-        totalHabits:allHabits.length,
-      };
+      return{ n:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()], num:d.getDate(), today:d.toDateString()===today.toDateString(), dateStr, completedCount, totalHabits:allHabits.length };
     });
     return(
       <div style={{padding:'22px 26px',maxWidth:1200}}>
         <div style={{marginBottom:20}}>
           <h1 style={{fontFamily:'Instrument Serif,serif',fontSize:28,fontWeight:400,color:'#1a1a1a',marginBottom:4}}>Good morning, {name} ✨</h1>
-          <p style={{fontSize:13,color:'#888'}}>
-            {sustainMode ? '🌟 Sustain Mode' : `Week ${week} of 4`} · Day {day} · {habits.length-done.length} habits remaining
-          </p>
-          <div style={{display:'inline-flex',alignItems:'center',gap:6,background:sustainMode?'#f8fcf8':'#f3f8f3',border:`1px solid ${sustainMode?'#8aad8a':'#b5ceb5'}`,borderRadius:99,padding:'4px 12px',fontSize:12,color:sustainMode?'#5a7a5a':'#5a7a5a',fontWeight:500,marginTop:8}}>
+          <p style={{fontSize:13,color:'#888'}}>{sustainMode?'🌟 Sustain Mode':`Week ${week} of 4`} · Day {day} · {habits.length-done.length} habits remaining</p>
+          <div style={{display:'inline-flex',alignItems:'center',gap:6,background:sustainMode?'#f8fcf8':'#f3f8f3',border:`1px solid ${sustainMode?'#8aad8a':'#b5ceb5'}`,borderRadius:99,padding:'4px 12px',fontSize:12,color:'#5a7a5a',fontWeight:500,marginTop:8}}>
             {arch.icon} {arch.name} · {sustainMode?'Building Forever':lvMap[lvl]||'Building'}
           </div>
         </div>
         <div style={{display:'grid',gridTemplateColumns:'250px 1fr',gap:18,alignItems:'start'}} className="dash-main-grid">
-          <div style={{display:'flex',flexDirection:'column',gap:16}}><AvatarCard/></div>
+          <div style={{display:'flex',flexDirection:'column',gap:16}}><CompanionTile/></div>
           <div style={{display:'flex',flexDirection:'column',gap:16}}>
             <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}} className="stats-row">
               {[
@@ -1160,8 +1389,7 @@ export default function Dashboard() {
               ))}
             </div>
             <HabitsGrid/>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
-              <div style={{background:'#1a1a16',border:'1.5px solid rgba(255,255,255,0.06)',borderRadius:20,padding:20,color:'white'}}>
+            <div style={{background:'#1a1a16',border:'1.5px solid rgba(255,255,255,0.06)',borderRadius:20,padding:20,color:'white'}}>
                 <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#444438',marginBottom:14}}>Quick Start</div>
                 <div style={{display:'flex',flexDirection:'column',gap:8}}>
                   {Object.entries(ROUTINES).map(([k,r])=>(
@@ -1172,25 +1400,9 @@ export default function Dashboard() {
                   ))}
                 </div>
               </div>
-              <div style={{background:'linear-gradient(135deg,#1a2e1a,#1c3620)',border:'1.5px solid rgba(78,203,113,0.15)',borderRadius:20,padding:20,color:'white'}}>
-                <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#3a5a3a',marginBottom:14}}>Green Energy</div>
-                <div style={{display:'flex',alignItems:'center',gap:13,marginBottom:12}}>
-                  <div style={{width:50,height:50,borderRadius:'50%',background:'radial-gradient(circle at 35% 35%,#7ae88a,#2d7a3a)',boxShadow:'0 0 20px rgba(78,203,113,0.35)',flexShrink:0,animation:'pulseGe 3s ease-in-out infinite'}}/>
-                  <div><div style={{fontFamily:'Syne,sans-serif',fontSize:24,fontWeight:700,color:'#4ecb71'}}>{ge} GE</div><div style={{fontSize:11,color:'#3a5a3a'}}>This week</div></div>
-                </div>
-                <div style={{display:'flex',flexDirection:'column',gap:5,marginBottom:12}}>
-                  {habits.filter(h=>h.ge>0).map(h=>(
-                    <div key={h.key} style={{display:'flex',alignItems:'center',gap:7,fontSize:12,color:'#6a9a6a'}}>
-                      <div style={{width:5,height:5,borderRadius:'50%',background:'#4ecb71',flexShrink:0}}/>{h.name}
-                    </div>
-                  ))}
-                </div>
-                <button onClick={()=>setDonateOpen(true)} style={{width:'100%',padding:10,background:'linear-gradient(135deg,#3a7a4a,#2d6a3d)',border:'none',borderRadius:10,color:'white',fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>🌍 Donate GE to Planet</button>
-              </div>
-            </div>
             <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20}}>
               <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:12}}>
-                Week at a Glance · {sustainMode ? '🌟 Sustain Mode' : `Week ${week} of 4`}
+                Week at a Glance · {sustainMode?'🌟 Sustain Mode':`Week ${week} of 4`}
               </div>
               <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:6}}>
                 {wdays.map(d=>{
@@ -1201,14 +1413,8 @@ export default function Dashboard() {
                       <div style={{fontSize:9,color:'#888',textTransform:'uppercase',letterSpacing:'0.5px'}}>{d.n}</div>
                       <div style={{fontWeight:600,fontSize:13,marginTop:2,marginBottom:4,color:d.today?'#5a7a5a':allDone?'#8aad8a':'#2a2a2a'}}>{d.num}</div>
                       <div style={{display:'flex',justifyContent:'center',alignItems:'center',gap:2,flexWrap:'wrap'}}>
-                        {d.completedCount>0&&(
-                          <div style={{fontSize:9,fontWeight:700,color:allDone?'#8aad8a':'#d4af6a'}}>
-                            {allDone?'✓':d.completedCount}
-                          </div>
-                        )}
-                        {!allDone&&d.completedCount===0&&(
-                          <div style={{width:4,height:4,borderRadius:'50%',background:'#e8e4de'}}/>
-                        )}
+                        {d.completedCount>0&&<div style={{fontSize:9,fontWeight:700,color:allDone?'#8aad8a':'#d4af6a'}}>{allDone?'✓':d.completedCount}</div>}
+                        {!allDone&&d.completedCount===0&&<div style={{width:4,height:4,borderRadius:'50%',background:'#e8e4de'}}/>}
                       </div>
                     </div>
                   );
@@ -1226,9 +1432,7 @@ export default function Dashboard() {
     <div style={{padding:'22px 26px',maxWidth:900}}>
       <HabitsGrid/>
       <div style={{marginTop:18}}><ProgressStats/></div>
-      <div style={{marginTop:24}}>
-        <TabBadHabits onAdd={()=>setBadHabitOpen(true)} onToast={toast}/>
-      </div>
+      <div style={{marginTop:24}}><TabBadHabits onAdd={()=>setBadHabitOpen(true)} onToast={toast}/></div>
     </div>
   );
 
@@ -1284,8 +1488,7 @@ export default function Dashboard() {
                         </div>
                       ))}
                     </div>
-                    <button onClick={()=>startRoutine(k)}
-                      style={{width:'100%',padding:10,background:r.color,color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
+                    <button onClick={()=>startRoutine(k)} style={{width:'100%',padding:10,background:r.color,color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
                       {todayCount>0?`Start again (${todayCount} done)`:`Start ${r.label} →`}
                     </button>
                   </div>
@@ -1297,10 +1500,7 @@ export default function Dashboard() {
                 <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>Recent completions</div>
                 <div style={{display:'flex',flexDirection:'column',gap:8}}>
                   {Object.entries(routineLog).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,10).map(([k,v])=>{
-                    const parts=k.split('_');
-                    const dateStr=parts[parts.length-1];
-                    const routineKey=parts.slice(0,-1).join('_');
-                    const r=ROUTINES[routineKey];
+                    const parts=k.split('_'); const dateStr=parts[parts.length-1]; const routineKey=parts.slice(0,-1).join('_'); const r=ROUTINES[routineKey];
                     if(!r) return null;
                     return(
                       <div key={k} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',background:'#f7f3ed',borderRadius:12,border:'1px solid #e8e4de'}}>
@@ -1399,19 +1599,14 @@ export default function Dashboard() {
             )}
             {selectedDay&&dayStatsLoading&&(
               <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:24,textAlign:'center'}}>
-                <div style={{fontSize:24,marginBottom:8}}>⏳</div>
-                <div style={{fontSize:13,color:'#888'}}>Loading stats...</div>
+                <div style={{fontSize:24,marginBottom:8}}>⏳</div><div style={{fontSize:13,color:'#888'}}>Loading stats...</div>
               </div>
             )}
             {selectedDay&&!dayStatsLoading&&dayStats&&(
               <div style={{display:'flex',flexDirection:'column',gap:12}}>
                 <div style={{background:'#1a2e1a',borderRadius:20,padding:20,color:'white'}}>
-                  <div style={{fontSize:11,color:'#4a6a4a',textTransform:'uppercase',letterSpacing:1,marginBottom:4}}>
-                    {new Date(selectedDay+'T12:00:00').toLocaleDateString('en-US',{weekday:'long'})}
-                  </div>
-                  <div style={{fontFamily:'Instrument Serif,serif',fontSize:22,color:'white',marginBottom:12}}>
-                    {new Date(selectedDay+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric'})}
-                  </div>
+                  <div style={{fontSize:11,color:'#4a6a4a',textTransform:'uppercase',letterSpacing:1,marginBottom:4}}>{new Date(selectedDay+'T12:00:00').toLocaleDateString('en-US',{weekday:'long'})}</div>
+                  <div style={{fontFamily:'Instrument Serif,serif',fontSize:22,color:'white',marginBottom:12}}>{new Date(selectedDay+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric'})}</div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
                     {[{v:dayStats.completed.length,l:'Habits done',c:'#7ac47a'},{v:`+${dayStats.totalCoins}`,l:'Coins earned',c:'#d4af6a'},{v:`+${dayStats.totalGE}`,l:'GE generated',c:'#4ecb71'}].map(s=>(
                       <div key={s.l} style={{textAlign:'center',background:'rgba(255,255,255,0.06)',borderRadius:10,padding:'10px 6px'}}>
@@ -1510,81 +1705,23 @@ export default function Dashboard() {
 
   const TabSettings=()=>{
     const setUser = useStore(s=>s.setUser);
+    const SKIN_OPTIONS = [{v:'eeb4a4',l:'Light'},{v:'e5a07e',l:'Light Brown'},{v:'d78774',l:'Brown'},{v:'b16a5b',l:'Medium'},{v:'92594b',l:'Deep Brown'},{v:'623d36',l:'Deep'}];
+    const HAIR_OPTIONS = [{v:'long',l:'Long'},{v:'extraLong',l:'Extra Long'},{v:'bobCut',l:'Bob'},{v:'bobBangs',l:'Bob Bangs'},{v:'curly',l:'Curly'},{v:'curlyBun',l:'Curly Bun'},{v:'pigtails',l:'Pigtails'},{v:'straightBun',l:'Straight Bun'},{v:'shortCombover',l:'Short'},{v:'buzzcut',l:'Buzzcut'},{v:'fade',l:'Fade'},{v:'bald',l:'Bald'}];
+    const HAIR_COLORS  = [{v:'362c47',l:'Black'},{v:'6c4545',l:'Dark Brown'},{v:'e15c66',l:'Auburn'},{v:'f27d65',l:'Red'},{v:'f29c65',l:'Blonde'},{v:'dee1f5',l:'Silver'}];
+    // Eyewear only — expressive eyes are system-owned (driven by health/mood)
+    const EYE_OPTIONS  = [{v:'open',l:'None'},{v:'glasses',l:'Glasses'},{v:'sunglasses',l:'Sunnies'}];
+    // Mouth is system-owned — not shown to user
+    const BG_OPTIONS   = [{v:'b6e3f4',l:'Sky Blue'},{v:'c0aede',l:'Lavender'},{v:'d1f4d0',l:'Mint'},{v:'ffd5dc',l:'Rose'},{v:'ffdfba',l:'Peach'},{v:'f0ece6',l:'Cream'}];
+    const BODY_OPTIONS = [{v:'rounded',l:'Rounded'},{v:'squared',l:'Squared'},{v:'small',l:'Small'},{v:'checkered',l:'Patterned'}];
 
-    // DiceBear personas — correct parameter values from schema
-    const SKIN_OPTIONS   = [
-      {v:'eeb4a4',l:'Light'},
-      {v:'e5a07e',l:'Light Brown'},
-      {v:'d78774',l:'Brown'},
-      {v:'b16a5b',l:'Medium'},
-      {v:'92594b',l:'Deep Brown'},
-      {v:'623d36',l:'Deep'},
-    ];
-    const HAIR_OPTIONS   = [
-      {v:'long',l:'Long'},
-      {v:'extraLong',l:'Extra Long'},
-      {v:'bobCut',l:'Bob'},
-      {v:'bobBangs',l:'Bob Bangs'},
-      {v:'curly',l:'Curly'},
-      {v:'curlyBun',l:'Curly Bun'},
-      {v:'pigtails',l:'Pigtails'},
-      {v:'straightBun',l:'Straight Bun'},
-      {v:'shortCombover',l:'Short'},
-      {v:'buzzcut',l:'Buzzcut'},
-      {v:'fade',l:'Fade'},
-      {v:'bald',l:'Bald'},
-    ];
-    const HAIR_COLORS    = [
-      {v:'362c47',l:'Black'},
-      {v:'6c4545',l:'Dark Brown'},
-      {v:'e15c66',l:'Auburn'},
-      {v:'f27d65',l:'Red'},
-      {v:'f29c65',l:'Blonde'},
-      {v:'dee1f5',l:'Silver'},
-    ];
-    const EYE_OPTIONS    = [
-      {v:'open',l:'Open'},
-      {v:'happy',l:'Happy'},
-      {v:'wink',l:'Wink'},
-      {v:'sleep',l:'Tired'},
-      {v:'glasses',l:'Glasses'},
-      {v:'sunglasses',l:'Sunnies'},
-    ];
-    const MOUTH_OPTIONS  = [
-      {v:'smile',l:'Smile'},
-      {v:'bigSmile',l:'Big Smile'},
-      {v:'smirk',l:'Smirk'},
-      {v:'lips',l:'Lips'},
-      {v:'frown',l:'Frown'},
-      {v:'surprise',l:'Surprise'},
-    ];
-    const BG_OPTIONS     = [
-      {v:'b6e3f4',l:'Sky Blue'},
-      {v:'c0aede',l:'Lavender'},
-      {v:'d1f4d0',l:'Mint'},
-      {v:'ffd5dc',l:'Rose'},
-      {v:'ffdfba',l:'Peach'},
-      {v:'f0ece6',l:'Cream'},
-    ];
-    // Note: accessories in personas = eyes field (glasses/sunglasses already in eyes)
-    // body controls the shape
-    const BODY_OPTIONS   = [
-      {v:'rounded',l:'Rounded'},
-      {v:'squared',l:'Squared'},
-      {v:'small',l:'Small'},
-      {v:'checkered',l:'Patterned'},
-    ];
-
+    const baseEyes = (avatarEyes==='glasses'||avatarEyes==='sunglasses') ? avatarEyes : 'open';
+    const { mouth:moodMouth, eyes:moodEyes } = getMoodExpression(health, baseEyes, { isRestDay: isRestDayToday });
     const p2 = new URLSearchParams();
-    p2.set('seed', name || 'wellness');
-    p2.set('skinColor', avatarSkin);
-    p2.set('hair', avatarHair);
-    p2.set('hairColor', avatarHairColor);
-    p2.set('eyes', avatarEyes);
-    p2.set('mouth', avatarMouth);
-    p2.set('backgroundColor', avatarBg);
-    p2.set('body', avatarAccessory || 'rounded');
-    p2.set('facialHairProbability', '0');
+    p2.set('seed', name||'wellness'); p2.set('skinColor', avatarSkin);
+    p2.set('hair', avatarHair); p2.set('hairColor', avatarHairColor);
+    p2.set('eyes', moodEyes); p2.set('mouth', moodMouth);
+    p2.set('backgroundColor', avatarBg); p2.set('body', avatarAccessory||'rounded');
+    p2.set('facialHairProbability','0');
     const dicebearUrl = `https://api.dicebear.com/9.x/personas/svg?${p2.toString()}`;
 
     function OptionRow({ label, options, current, field }) {
@@ -1604,151 +1741,174 @@ export default function Dashboard() {
     }
 
     return(
-    <div style={{padding:'22px 26px',maxWidth:680}}>
-      <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:24,padding:26,display:'flex',gap:18,alignItems:'center',marginBottom:16,flexWrap:'wrap'}}>
-        <div style={{width:64,height:64,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',overflow:'hidden',border:'3px solid rgba(255,255,255,0.7)',flexShrink:0}}>
-          <object type="image/svg+xml" data={dicebearUrl} style={{width:'100%',height:'100%',pointerEvents:'none'}}><span>🧑‍🌿</span></object>
+      <div style={{padding:'22px 26px',maxWidth:680}}>
+        <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:24,padding:26,display:'flex',gap:18,alignItems:'center',marginBottom:16,flexWrap:'wrap'}}>
+          <div style={{width:64,height:64,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',overflow:'hidden',border:'3px solid rgba(255,255,255,0.7)',flexShrink:0}}>
+            <object type="image/svg+xml" data={dicebearUrl} style={{width:'100%',height:'100%',pointerEvents:'none'}}><span>🧑‍🌿</span></object>
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontFamily:'Instrument Serif,serif',fontSize:22,color:'#1a1a1a',marginBottom:6}}>{name}</div>
+            <div style={{display:'inline-flex',alignItems:'center',gap:6,background:'#f3f8f3',border:'1px solid #b5ceb5',borderRadius:99,padding:'4px 12px',fontSize:12,color:'#5a7a5a',fontWeight:500}}>{arch.icon} {arch.name}</div>
+          </div>
+          <div style={{display:'flex',gap:20}}>
+            {[{v:done.length,l:'today'},{v:coins.toLocaleString(),l:'coins'},{v:`Lv.${level}`,l:'level'}].map(s=>(
+              <div key={s.l} style={{textAlign:'center'}}>
+                <div style={{fontFamily:'Syne,sans-serif',fontSize:20,fontWeight:700,color:'#1a1a1a'}}>{s.v}</div>
+                <div style={{fontSize:11,color:'#888',marginTop:2}}>{s.l}</div>
+              </div>
+            ))}
+          </div>
         </div>
-        <div style={{flex:1}}>
-          <div style={{fontFamily:'Instrument Serif,serif',fontSize:22,color:'#1a1a1a',marginBottom:6}}>{name}</div>
-          <div style={{display:'inline-flex',alignItems:'center',gap:6,background:'#f3f8f3',border:'1px solid #b5ceb5',borderRadius:99,padding:'4px 12px',fontSize:12,color:'#5a7a5a',fontWeight:500}}>{arch.icon} {arch.name}</div>
+
+        <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20,marginBottom:16}}>
+          <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:4}}>Customise Your Avatar</div>
+          <div style={{fontSize:11,color:'#aaa',marginBottom:16}}>Expression is driven by your health — the happier you are, the happier your avatar!</div>
+          <div style={{display:'flex',gap:20,alignItems:'flex-start',flexWrap:'wrap'}}>
+            <div style={{width:120,height:120,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',overflow:'hidden',border:'3px solid #b5ceb5',flexShrink:0,alignSelf:'center'}}>
+              <object type="image/svg+xml" data={dicebearUrl} style={{width:'100%',height:'100%',pointerEvents:'none'}}><span style={{fontSize:40}}>🧑‍🌿</span></object>
+            </div>
+            <div style={{flex:1,minWidth:240}}>
+              <OptionRow label="Skin Tone" options={SKIN_OPTIONS} current={avatarSkin} field="avatarSkin"/>
+              <OptionRow label="Hair Style" options={HAIR_OPTIONS} current={avatarHair} field="avatarHair"/>
+              <OptionRow label="Hair Colour" options={HAIR_COLORS} current={avatarHairColor} field="avatarHairColor"/>
+              <OptionRow label="Eyewear" options={EYE_OPTIONS} current={avatarEyes} field="avatarEyes"/>
+              <OptionRow label="Body Shape" options={BODY_OPTIONS} current={avatarAccessory||'rounded'} field="avatarAccessory"/>
+              <OptionRow label="Background" options={BG_OPTIONS} current={avatarBg} field="avatarBg"/>
+            </div>
+          </div>
         </div>
-        <div style={{display:'flex',gap:20}}>
-          {[{v:done.length,l:'today'},{v:coins.toLocaleString(),l:'coins'},{v:`Lv.${level}`,l:'level'}].map(s=>(
-            <div key={s.l} style={{textAlign:'center'}}>
-              <div style={{fontFamily:'Syne,sans-serif',fontSize:20,fontWeight:700,color:'#1a1a1a'}}>{s.v}</div>
-              <div style={{fontSize:11,color:'#888',marginTop:2}}>{s.l}</div>
+
+        <div style={{background:'linear-gradient(135deg,#1a2e1a,#2a3a2a)',borderRadius:20,padding:20,color:'white',marginBottom:16}}>
+          <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#3a5a3a',marginBottom:14}}>Program Progress</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
+            {[{n:'Week 1',s:'Foundation'},{n:'Week 2',s:'Build'},{n:'Week 3',s:'Optimise'},{n:'Week 4',s:'Integrate'}].map((w,i)=>(
+              <div key={i} style={{background:i+1===week?'rgba(78,203,113,0.1)':i+1<week?'rgba(122,158,126,0.1)':'rgba(255,255,255,0.04)',border:`1px solid ${i+1===week?'rgba(78,203,113,0.3)':i+1<week?'rgba(122,158,126,0.25)':'rgba(255,255,255,0.08)'}`,borderRadius:10,padding:12,textAlign:'center'}}>
+                <div style={{fontSize:10,color:'#3a5a3a',textTransform:'uppercase',letterSpacing:1,marginBottom:3}}>{w.n}</div>
+                <div style={{fontSize:12,color:'#8aba8a',marginBottom:6}}>{w.s}</div>
+                <div style={{fontSize:16}}>{i+1<week?'✅':i+1===week?'🌱':'🔒'}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20,marginBottom:16}}>
+          <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>Your Program</div>
+          {[
+            {l:'Wellness Archetype',v:`${arch.icon} ${arch.name}`},
+            {l:'Lifestyle Level',v:lvMap[lvl]||'Building'},
+            {l:'Chronotype',v:chronotype?chronotype.charAt(0).toUpperCase()+chronotype.slice(1):'Bear'},
+            {l:'Program',v:'Spring Wellness 2026'},
+            {l:'Access',v:'Founding Beta · Lifetime'},
+          ].map(r=>(
+            <div key={r.l} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:'1px solid #f0ece6'}}>
+              <span style={{fontSize:13,color:'#555'}}>{r.l}</span>
+              <span style={{fontSize:13,color:'#1a1a1a',fontWeight:500}}>{r.v}</span>
             </div>
           ))}
         </div>
-      </div>
 
-      {/* ── Avatar customiser ── */}
-      <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20,marginBottom:16}}>
-        <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:16}}>Customise Your Avatar</div>
-        <div style={{display:'flex',gap:20,alignItems:'flex-start',flexWrap:'wrap'}}>
-          {/* Live preview */}
-          <div style={{width:120,height:120,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',overflow:'hidden',border:'3px solid #b5ceb5',flexShrink:0,alignSelf:'center'}}>
-            <object type="image/svg+xml" data={dicebearUrl} style={{width:'100%',height:'100%',pointerEvents:'none'}}><span style={{fontSize:40}}>🧑‍🌿</span></object>
-          </div>
-          <div style={{flex:1,minWidth:240}}>
-            <OptionRow label="Skin Tone" options={SKIN_OPTIONS} current={avatarSkin} field="avatarSkin"/>
-            <OptionRow label="Hair Style" options={HAIR_OPTIONS} current={avatarHair} field="avatarHair"/>
-            <OptionRow label="Hair Colour" options={HAIR_COLORS} current={avatarHairColor} field="avatarHairColor"/>
-            <OptionRow label="Eyes" options={EYE_OPTIONS} current={avatarEyes} field="avatarEyes"/>
-            <OptionRow label="Mouth" options={MOUTH_OPTIONS} current={avatarMouth} field="avatarMouth"/>
-            <OptionRow label="Body Shape" options={BODY_OPTIONS} current={avatarAccessory || 'rounded'} field="avatarAccessory"/>
-            <OptionRow label="Background" options={BG_OPTIONS} current={avatarBg} field="avatarBg"/>
-          </div>
+        <NotifButton/>
+
+        <div style={{background:'#f7f3ed',border:'1.5px solid #e8e4de',borderRadius:20,padding:20,textAlign:'center'}}>
+          <div style={{fontSize:22,marginBottom:10}}>⚙️</div>
+          <div style={{fontSize:14,fontWeight:500,color:'#2a2a2a',marginBottom:6}}>More settings coming soon</div>
+          <div style={{fontSize:13,color:'#888',lineHeight:1.6,marginBottom:14}}>Notification preferences, device sync, and account management are on the roadmap. Your feedback shapes what gets built first.</div>
+          <a href="https://instagram.com/byjbea" target="_blank" rel="noreferrer"
+            style={{display:'inline-flex',alignItems:'center',gap:6,background:'#1a2e1a',color:'white',padding:'10px 20px',borderRadius:99,fontSize:13,fontWeight:600,textDecoration:'none'}}>
+            DM @byjbea with requests →
+          </a>
         </div>
+
+        {isAdmin && <NotionSyncCard toast={toast} />}
+
+        <button onClick={()=>{ if(window.confirm('Are you sure you want to sign out?')){ localStorage.removeItem('bloom-storage'); localStorage.removeItem('bloom-daily-stats'); localStorage.removeItem('bloom-routine-log'); localStorage.removeItem('bloom-routine-freqs'); window.location.reload(); } }}
+          style={{width:'100%',marginTop:12,padding:'13px',background:'transparent',border:'1.5px solid #e8e4de',borderRadius:12,fontSize:13,fontWeight:600,color:'#888',cursor:'pointer',fontFamily:'DM Sans,sans-serif',transition:'all 0.2s'}}
+          onMouseOver={e=>{e.currentTarget.style.borderColor='#e07070';e.currentTarget.style.color='#e07070';}}
+          onMouseOut={e=>{e.currentTarget.style.borderColor='#e8e4de';e.currentTarget.style.color='#888';}}>
+          Sign out
+        </button>
       </div>
-
-      <div style={{background:'linear-gradient(135deg,#1a2e1a,#2a3a2a)',borderRadius:20,padding:20,color:'white',marginBottom:16}}>
-        <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#3a5a3a',marginBottom:14}}>Program Progress</div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
-          {[{n:'Week 1',s:'Foundation'},{n:'Week 2',s:'Build'},{n:'Week 3',s:'Optimise'},{n:'Week 4',s:'Integrate'}].map((w,i)=>(
-            <div key={i} style={{background:i+1===week?'rgba(78,203,113,0.1)':i+1<week?'rgba(122,158,126,0.1)':'rgba(255,255,255,0.04)',border:`1px solid ${i+1===week?'rgba(78,203,113,0.3)':i+1<week?'rgba(122,158,126,0.25)':'rgba(255,255,255,0.08)'}`,borderRadius:10,padding:12,textAlign:'center'}}>
-              <div style={{fontSize:10,color:'#3a5a3a',textTransform:'uppercase',letterSpacing:1,marginBottom:3}}>{w.n}</div>
-              <div style={{fontSize:12,color:'#8aba8a',marginBottom:6}}>{w.s}</div>
-              <div style={{fontSize:16}}>{i+1<week?'✅':i+1===week?'🌱':'🔒'}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20,marginBottom:16}}>
-        <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:14}}>Your Program</div>
-        {[
-          {l:'Wellness Archetype',v:`${arch.icon} ${arch.name}`},
-          {l:'Lifestyle Level',v:lvMap[lvl]||'Building'},
-          {l:'Chronotype',v:chronotype?chronotype.charAt(0).toUpperCase()+chronotype.slice(1):'Bear'},
-          {l:'Program',v:'Spring Wellness 2026'},
-          {l:'Access',v:'Founding Beta · Lifetime'},
-        ].map(r=>(
-          <div key={r.l} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:'1px solid #f0ece6'}}>
-            <span style={{fontSize:13,color:'#555'}}>{r.l}</span>
-            <span style={{fontSize:13,color:'#1a1a1a',fontWeight:500}}>{r.v}</span>
-          </div>
-        ))}
-      </div>
-
-      <NotifButton/>
-
-      <div style={{background:'#f7f3ed',border:'1.5px solid #e8e4de',borderRadius:20,padding:20,textAlign:'center'}}>
-        <div style={{fontSize:22,marginBottom:10}}>⚙️</div>
-        <div style={{fontSize:14,fontWeight:500,color:'#2a2a2a',marginBottom:6}}>More settings coming soon</div>
-        <div style={{fontSize:13,color:'#888',lineHeight:1.6,marginBottom:14}}>
-          Notification preferences, device sync, and account management are on the roadmap. Your feedback shapes what gets built first.
-        </div>
-        <a href="https://instagram.com/byjbea" target="_blank" rel="noreferrer"
-          style={{display:'inline-flex',alignItems:'center',gap:6,background:'#1a2e1a',color:'white',padding:'10px 20px',borderRadius:99,fontSize:13,fontWeight:600,textDecoration:'none'}}>
-          DM @byjbea with requests →
-        </a>
-      </div>
-
-      <button
-        onClick={()=>{
-          if(window.confirm('Are you sure you want to sign out?')){
-            localStorage.removeItem('bloom-storage');
-            localStorage.removeItem('bloom-daily-stats');
-            localStorage.removeItem('bloom-routine-log');
-            localStorage.removeItem('bloom-routine-freqs');
-            window.location.reload();
-          }
-        }}
-        style={{width:'100%',marginTop:12,padding:'13px',background:'transparent',border:'1.5px solid #e8e4de',borderRadius:12,fontSize:13,fontWeight:600,color:'#888',cursor:'pointer',fontFamily:'DM Sans,sans-serif',transition:'all 0.2s'}}
-        onMouseOver={e=>{e.currentTarget.style.borderColor='#e07070';e.currentTarget.style.color='#e07070';}}
-        onMouseOut={e=>{e.currentTarget.style.borderColor='#e8e4de';e.currentTarget.style.color='#888';}}
-      >
-        Sign out
-      </button>
-    </div>
-  );};
-
+    );
+  };
 
   const ShopModal=()=>(
     <div onClick={()=>setShopOpen(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:24,padding:26,width:560,maxWidth:'95vw',maxHeight:'82vh',overflowY:'auto'}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:24,padding:26,width:580,maxWidth:'95vw',maxHeight:'84vh',overflowY:'auto'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
-          <h2 style={{fontFamily:'Instrument Serif,serif',fontSize:22}}>Avatar Shop 🛍</h2>
+          <h2 style={{fontFamily:'Instrument Serif,serif',fontSize:22}}>Companion Shop 🛍</h2>
           <button onClick={()=>setShopOpen(false)} style={{width:30,height:30,borderRadius:'50%',border:'1.5px solid #e8e4de',background:'transparent',cursor:'pointer',fontSize:15}}>✕</button>
         </div>
         <div style={{background:'#f7f3ed',borderRadius:12,padding:'10px 14px',marginBottom:18,display:'flex',gap:18,fontSize:13}}>
           <span>🪙 <strong>{coins.toLocaleString()}</strong></span><span>⚡ <strong>{ge}</strong> GE</span>
         </div>
-        <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:10}}>Coin Items</div>
+
+        {/* Scenery */}
+        <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:10}}>Scenery 🎨</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:22}}>
+          {SCENES.map(scene=>{
+            const owned = ownedScenes.includes(scene.key) || scene.cost===0;
+            const active = (avatarScene===scene.key) || (!avatarScene && scene.key==='default');
+            return(
+              <div key={scene.key} onClick={()=>buyScene(scene)}
+                style={{border:`1.5px solid ${active?'#8aad8a':owned?'#b5ceb5':'#e8e4de'}`,borderRadius:13,padding:'10px 8px',textAlign:'center',cursor:'pointer',transition:'all 0.2s'}}>
+                <div style={{width:'100%',height:32,borderRadius:8,background:scene.gradient,marginBottom:7}}/>
+                <div style={{fontSize:11,fontWeight:500,marginBottom:4}}>{scene.name}</div>
+                <div style={{fontSize:11,fontWeight:600,color:active?'#5a7a5a':owned?'#8aad8a':'#d4af6a'}}>
+                  {active?'✓ Active':owned?'Tap to use':scene.cost===0?'Free':`🪙 ${scene.cost}`}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Accessories — coin */}
+        <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:10}}>Accessories 🪄</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:18}}>
           {SHOP_ITEMS.filter(i=>i.cost>0).map(item=>{
             const owned=inventory.some(iv=>iv.item_key===item.key);
-            return(<div key={item.key} onClick={()=>!owned&&buyItem(item)} style={{border:`1.5px solid ${owned?'#8aad8a':'#e8e4de'}`,background:owned?'#f3f8f3':'white',borderRadius:13,padding:'12px 8px',textAlign:'center',cursor:owned?'default':'pointer',transition:'all 0.2s'}}>
-              <div style={{fontSize:28,marginBottom:7}}>{item.icon}</div>
-              <div style={{fontSize:11,fontWeight:500,marginBottom:4}}>{item.name}</div>
-              <div style={{fontSize:11,color:owned?'#8aad8a':'#d4af6a',fontWeight:600}}>{owned?'✓ Owned':`🪙 ${item.cost}`}</div>
-            </div>);
+            return(
+              <div key={item.key} onClick={()=>!owned&&buyItem(item)}
+                style={{border:`1.5px solid ${owned?'#8aad8a':'#e8e4de'}`,background:owned?'#f3f8f3':'white',borderRadius:13,padding:'12px 8px',textAlign:'center',cursor:owned?'default':'pointer',transition:'all 0.2s'}}>
+                <div style={{fontSize:28,marginBottom:7}}>{item.icon}</div>
+                <div style={{fontSize:11,fontWeight:500,marginBottom:4}}>{item.name}</div>
+                <div style={{fontSize:11,color:owned?'#8aad8a':'#d4af6a',fontWeight:600}}>{owned?'✓ Owned':`🪙 ${item.cost}`}</div>
+              </div>
+            );
           })}
         </div>
-        <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:10}}>GE Items</div>
+
+        {/* Green Rewards — GE */}
+        <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:10}}>Green Rewards ⚡</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:18}}>
           {SHOP_ITEMS.filter(i=>i.ge>0).map(item=>{
             const owned=inventory.some(iv=>iv.item_key===item.key);
-            return(<div key={item.key} onClick={()=>!owned&&buyItem(item)} style={{border:`1.5px solid ${owned?'#8aad8a':'#e8e4de'}`,background:owned?'#f3f8f3':'white',borderRadius:13,padding:'12px 8px',textAlign:'center',cursor:owned?'default':'pointer',transition:'all 0.2s'}}>
-              <div style={{fontSize:28,marginBottom:7}}>{item.icon}</div>
-              <div style={{fontSize:11,fontWeight:500,marginBottom:4}}>{item.name}</div>
-              <div style={{fontSize:11,color:owned?'#8aad8a':'#38a855',fontWeight:600}}>{owned?'✓ Owned':`⚡ ${item.ge} GE`}</div>
-            </div>);
+            return(
+              <div key={item.key} onClick={()=>!owned&&buyItem(item)}
+                style={{border:`1.5px solid ${owned?'#8aad8a':'#e8e4de'}`,background:owned?'#f3f8f3':'white',borderRadius:13,padding:'12px 8px',textAlign:'center',cursor:owned?'default':'pointer',transition:'all 0.2s'}}>
+                <div style={{fontSize:28,marginBottom:7}}>{item.icon}</div>
+                <div style={{fontSize:11,fontWeight:500,marginBottom:4}}>{item.name}</div>
+                <div style={{fontSize:11,color:owned?'#8aad8a':'#38a855',fontWeight:600}}>{owned?'✓ Owned':`⚡ ${item.ge} GE`}</div>
+              </div>
+            );
           })}
         </div>
+
+        {/* Inventory */}
         {inventory.length>0&&(
           <>
-            <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:10}}>Your Inventory</div>
+            <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:10}}>Your Accessories</div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
-              {inventory.map(item=>{const si=SHOP_ITEMS.find(s=>s.key===item.item_key);return(
-                <div key={item.id} onClick={()=>equipItem(item)} style={{border:`1.5px solid ${item.equipped?'#d4af6a':'#e8e4de'}`,background:item.equipped?'#fdf8ed':'white',borderRadius:13,padding:'12px 8px',textAlign:'center',cursor:'pointer',transition:'all 0.2s'}}>
-                  <div style={{fontSize:26,marginBottom:5}}>{si?.icon||'✨'}</div>
-                  <div style={{fontSize:11,fontWeight:500}}>{item.item_name}</div>
-                  <div style={{fontSize:10,color:item.equipped?'#d4af6a':'#888',marginTop:3}}>{item.equipped?'✓ Equipped':'Tap to equip'}</div>
-                </div>
-              );})}
+              {inventory.map(item=>{
+                const si=SHOP_ITEMS.find(s=>s.key===item.item_key);
+                return(
+                  <div key={item.id} onClick={()=>equipItem(item)}
+                    style={{border:`1.5px solid ${item.equipped?'#d4af6a':'#e8e4de'}`,background:item.equipped?'#fdf8ed':'white',borderRadius:13,padding:'12px 8px',textAlign:'center',cursor:'pointer',transition:'all 0.2s'}}>
+                    <div style={{fontSize:26,marginBottom:5}}>{si?.icon||'✨'}</div>
+                    <div style={{fontSize:11,fontWeight:500}}>{item.item_name}</div>
+                    <div style={{fontSize:10,color:item.equipped?'#d4af6a':'#888',marginTop:3}}>{item.equipped?'✓ Equipped':'Tap to equip'}</div>
+                  </div>
+                );
+              })}
             </div>
           </>
         )}
@@ -1785,29 +1945,46 @@ export default function Dashboard() {
     planet:{t:'Planet 🌍',s:`${ge} GE generated`},
     community:{t:'Community 👥',s:'Spring Wellness Program cohort'},
     settings:{t:'Profile & Settings ⚙️',s:`${arch.icon} ${arch.name} · ${lvMap[lvl]||'Building'}`},
-    badhabits:{t:'Quit Habits 🚫',s:'Track what you\'re reducing · slips cost health · awareness is the first step'},
+    badhabits:{t:'Quit Habits 🚫',s:"Track what you're reducing · slips cost health · awareness is the first step"},
     science:{t:'Habit Science 🔬',s:'The research behind every habit in your program'},
-    nourish: { t: 'Nourish 🥗', s: 'Track what you ate today — no quantities, no guilt' },
+    nourish:{t:'Nourish 🥗',s:'Track what you ate today — real-life amounts, zero guilt'},
+    companion:{t:'Your Companion 🌸',s:'Tend to your companion · feed · decorate'},
     roadmap:{t:'Roadmap 🗺️',s:"Vote for features · suggest ideas · see what's coming"},
     analytics:{t:'Quiz Analytics 📊',s:'Conversion funnel & drop-off analysis'},
   };
   const cur=titles[tab]||titles.dashboard;
+
+  // Horizontal sub-tabs shown when inside the Habits or More group.
+  const SubNav=()=>{
+    const g=groupOf(tab);
+    if(!g) return null;
+    let items=GROUPS[g];
+    if(g==='more' && isAdmin) items=[...items,{key:'analytics',icon:'📊',label:'Analytics'}];
+    return(
+      <div style={{display:'flex',gap:6,overflowX:'auto',padding:'12px 26px 0'}}>
+        {items.map(it=>(
+          <button key={it.key} onClick={()=>setTab(it.key)}
+            style={{flexShrink:0,display:'flex',alignItems:'center',gap:6,padding:'8px 14px',borderRadius:99,border:`1.5px solid ${tab===it.key?'#8aad8a':'#e8e4de'}`,background:tab===it.key?'#f0f7f0':'white',color:tab===it.key?'#3a6a3a':'#888',cursor:'pointer',fontFamily:'DM Sans,sans-serif',fontSize:13,fontWeight:600,transition:'all 0.2s'}}>
+            <span>{it.icon}</span>{it.label}
+          </button>
+        ))}
+      </div>
+    );
+  };
 
   return(
     <div style={{display:'flex',minHeight:'100vh',background:'#f7f3ed',overflowX:'hidden'}}>
       <Sidebar/>
       <div style={{marginLeft:sidebarOpen?220:0,flex:1,minWidth:0,transition:'margin-left 0.25s ease'}}>
         <TopBar title={cur.t} sub={cur.s}/>
+        <SubNav/>
         <div style={{overflowX:'hidden'}}>
           {tab==='dashboard'  && <TabDashboard/>}
           {tab==='habits'     && <TabHabits/>}
+          {tab==='companion'  && <TabCompanion key={companionView} userId={userId} toast={toast} initialView={companionView} onCustomise={()=>setTab('settings')} onNavigate={(t)=>setTab(t)}/>}
           {tab==='science'    && <TabHabitReview habits={habits} customHabits={customHabits}/>}
-          {tab==='nourish' && <TabNourish userId={userId} coins={coins} setStats={setStats} toast={toast}/>}
-          {tab==='routines'   && <TabRoutinesEnhanced
-              routineLog={routineLog} setRoutineLog={setRoutineLog}
-              routineFreqs={routineFreqs} setRoutineFreqs={setRoutineFreqs}
-              coins={coins} userId={userId} toast={toast} allHabits={allHabits}
-            />}
+          {tab==='nourish'    && <TabNourish userId={userId} coins={coins} setStats={setStats} toast={toast}/>}
+          {tab==='routines'   && <TabRoutinesEnhanced routineLog={routineLog} setRoutineLog={setRoutineLog} routineFreqs={routineFreqs} setRoutineFreqs={setRoutineFreqs} coins={coins} userId={userId} toast={toast} allHabits={allHabits}/>}
           {tab==='planner'    && <TabPlanner/>}
           {tab==='planet'     && <TabPlanet/>}
           {tab==='community'  && <TabCommunity/>}
@@ -1817,32 +1994,27 @@ export default function Dashboard() {
         </div>
       </div>
       {badHabitOpen  && <BadHabitModal onClose={()=>setBadHabitOpen(false)}/>}
-      {shopOpen    && <ShopModal/>}
-      {donateOpen  && <DonateModal/>}
-      {reflOpen    && <ReflModal week={week} refl={refl} setRefl={setRefl} submitRefl={submitRefl}/>}
+      {shopOpen      && <ShopModal/>}
+      {donateOpen    && <DonateModal/>}
+      {reflOpen      && <ReflModal week={week} refl={refl} setRefl={setRefl} submitRefl={submitRefl}/>}
       {customHabitOpen && <CustomHabitModal onClose={()=>setCustomHabitOpen(false)}/>}
-      {statsLogOpen && <StatsLogModal statsForm={statsForm} setStatsForm={setStatsForm} manualStats={manualStats} setManualStats={setManualStats} setStatsLogOpen={setStatsLogOpen}/>}
-      {feedbackOpen && <FeedbackModal onClose={()=>setFeedbackOpen(false)}/>}
+      {statsLogOpen  && <StatsLogModal manualStats={manualStats} setManualStats={setManualStats} awardStatHealth={awardStatHealth} setStatsLogOpen={setStatsLogOpen}/>}
+      {feedbackOpen  && <FeedbackModal onClose={()=>setFeedbackOpen(false)}/>}
       {streakHistoryOpen && <StreakHistoryModal habit={streakHistoryHabit} streakData={streaks[streakHistoryHabit?.key]} onClose={()=>setStreakHistoryOpen(false)}/>}
       {sustainUnlockOpen && <SustainUnlockModal onClose={()=>setSustainUnlockOpen(false)}/>}
-      <EnergyModeModal habits={baseHabits} archetypeKey={archetypeKey} />
+      <EnergyModeModal habits={baseHabits} archetypeKey={archetypeKey}/>
       {modeEditorOpen && <ModeEditor habits={baseHabits} archetypeKey={archetypeKey} onClose={()=>setModeEditorOpen(false)}/>}
-              <div id="bloom-toast" className="toast" style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%) translateY(20px)',background:'#1a1a16',color:'white',padding:'12px 20px',borderRadius:99,fontSize:13,fontWeight:500,opacity:0,transition:'all 0.3s',zIndex:300,whiteSpace:'nowrap',pointerEvents:'none'}}/>
+      <div id="bloom-toast" className="toast" style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%) translateY(20px)',background:'#1a1a16',color:'white',padding:'12px 20px',borderRadius:99,fontSize:13,fontWeight:500,opacity:0,transition:'all 0.3s',zIndex:300,whiteSpace:'nowrap',pointerEvents:'none'}}/>
       <style>{`
         @keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}
         @keyframes pulseGe{0%,100%{box-shadow:0 0 20px rgba(78,203,113,0.35)}50%{box-shadow:0 0 36px rgba(78,203,113,0.5)}}
+        @keyframes heartFloat{0%{transform:translateY(0) scale(0.5);opacity:0}20%{opacity:1;transform:scale(1.2)}100%{transform:translateY(-80px) scale(0.8);opacity:0}}
         .toast.show{opacity:1!important;transform:translateX(-50%) translateY(0)!important;}
         *{min-width:0;}
-        /* Safe area for iPhone notch/dynamic island */
-        body { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
-        @supports (padding-top: env(safe-area-inset-top)) {
-          .topbar-safe { padding-top: calc(13px + env(safe-area-inset-top)) !important; }
-        }
+        body{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);}
+        @supports(padding-top:env(safe-area-inset-top)){.topbar-safe{padding-top:calc(13px + env(safe-area-inset-top))!important;}}
         @media(max-width:1100px){.dash-main-grid{grid-template-columns:1fr!important}.stats-row{grid-template-columns:repeat(2,1fr)!important}.routine-grid{grid-template-columns:1fr!important}.community-grid{grid-template-columns:1fr!important}.planner-grid-layout{grid-template-columns:1fr!important}}
-        @media(max-width:600px){
-          .dash-main-grid{grid-template-columns:1fr!important}
-          #bloom-toast{white-space:normal!important;text-align:center;max-width:80vw}
-        }
+        @media(max-width:600px){.dash-main-grid{grid-template-columns:1fr!important}#bloom-toast{white-space:normal!important;text-align:center;max-width:80vw}}
       `}</style>
     </div>
   );

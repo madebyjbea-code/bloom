@@ -1,0 +1,19 @@
+// vercel.json  →  project root (same level as package.json)
+//
+// OPTIONAL. Only add this once you're happy with manual syncing and want it
+// automatic instead. Runs the sync once a day at 6am UTC — free on your
+// current Vercel plan. Merge this into your existing vercel.json if you
+// already have one; don't just overwrite it.
+//
+// Note: Vercel Cron calls your route with a plain GET and no custom headers,
+// so the secret has to travel in the URL's query string here — that's normal
+// for this pattern, just don't share this file publicly with the real secret in it.
+
+{
+  "crons": [
+    {
+      "path": "/api/admin/sync-notion?secret=YOUR_SECRET_HERE",
+      "schedule": "0 6 * * *"
+    }
+  ]
+}
