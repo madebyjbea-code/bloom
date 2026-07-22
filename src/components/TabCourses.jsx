@@ -4,7 +4,7 @@
 // Describes Living Well and handles coaching waitlist/interest capture
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase } from '../lib/supabase';
 
 const SPOTS_TOTAL   = 3;  // Change this to open more spots
 const WAITLIST_OPEN = true; // Set false to hide waitlist entirely

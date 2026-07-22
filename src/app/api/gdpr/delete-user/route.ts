@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { supabase } from '../../../../lib/supabase';
 import { NextRequest, NextResponse } from 'next/server';
 
 /**
@@ -60,11 +60,12 @@ export async function POST(req: NextRequest) {
     const summary: { table: string; status: string; count: number }[] = [];
 
     for (const { table, col } of targets) {
-      const { error, count } = await supabase
+      const { error, data } = await supabase
         .from(table)
         .delete()
         .eq(col, userId)
-        .select('*', { count: 'exact', head: true });
+        .select('*');
+      const count = (data || []).length;
 
       if (error) {
         console.warn(`[GDPR] ${table}: ${error.message}`);
