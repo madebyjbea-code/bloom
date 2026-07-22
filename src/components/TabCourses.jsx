@@ -97,7 +97,6 @@ export default function TabCourses({ userId, toast }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             {TAG('#3a6a3a', '#f0f7f0', 'Coming Soon')}
-            {TAG('#9a7a2a', '#fdf8ed', 'Evergreen')}
           </div>
           <span style={{ fontSize: 28 }}>🌱</span>
         </div>
@@ -140,7 +139,6 @@ export default function TabCourses({ userId, toast }) {
             '📖 Self-paced',
             '🎯 Archetype-personalised',
             '🔬 Science-backed',
-            '♾️ Lifetime access',
           ].map(tag => (
             <span key={tag} style={{ fontSize: 11, padding: '5px 12px', background: '#f0f7f0', border: '1px solid #b5ceb5', borderRadius: 99, color: '#3a6a3a', fontWeight: 500 }}>
               {tag}
@@ -252,14 +250,11 @@ export default function TabCourses({ userId, toast }) {
             <div style={{ fontSize: 11, color: '#aaa', marginBottom: 2 }}>6-week programme</div>
             <div style={{ fontFamily: 'Instrument Serif, serif', fontSize: 22, color: '#1a1a1a' }}>€350</div>
           </div>
-          <div style={{ fontSize: 11, color: '#888', textAlign: 'right', lineHeight: 1.6, maxWidth: 160 }}>
-            Final price confirmed after your intake application
-          </div>
         </div>
 
         {/* Credentials note */}
         <div style={{ background: '#f7f3ed', border: '1px solid #e8e4de', borderRadius: 12, padding: '11px 14px', marginBottom: 18, fontSize: 12, color: '#666', lineHeight: 1.6 }}>
-          <strong style={{ color: '#2a2a2a' }}>About Jess</strong> — MSc Biomedical Sciences & Public Health, Rotterdam. Background in clinical science with a focus on lifestyle and preventive health. This is evidence-based wellness coaching, not medical treatment.
+          <strong style={{ color: '#2a2a2a' }}>About Jess</strong> — MSc Biomedical Sciences. This is evidence-based wellness coaching, not medical treatment.
         </div>
 
         {alreadyApplied ? (
