@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { getHabitsForUser, getCurrentWeek, getDayOfWeek, ARCHETYPE_INFO } from '../lib/springProgram';
+import { SUGGESTED_HABITS_TO_BUILD, createGoal, getGoals, logGoalInstance, getGoalWeekCount, getWeekStart } from '../lib/goalsTasks';
 import { useStore } from '../lib/store';
 import { getMoodExpression } from '../lib/avatarMood';
 import CommunityFeed from './CommunityFeed';
@@ -10,6 +11,7 @@ import ProgressStats from './ProgressStats';
 import CustomHabitModal from './CustomHabitModal';
 import FeedbackModal from './FeedbackModal';
 import TabRoadmap from './TabRoadmap';
+import TabCourses from './TabCourses';
 import TabBadHabits from './TabBadHabits';
 import BadHabitModal from './BadHabitModal';
 import QuizAnalytics from './QuizAnalytics';
@@ -62,13 +64,13 @@ const ROUTINES = {
 
 // Shop items — SVG-renderable accessories only
 const SHOP_ITEMS = [
-  { key: 'bow',           name: 'Floral Bow',    icon: '🎀', cost: 90,  ge: 0 },
-  { key: 'flower_crown',  name: 'Flower Crown',  icon: '🌸', cost: 150, ge: 0 },
-  { key: 'star_sparkles', name: 'Star Sparkles', icon: '✨', cost: 200, ge: 0 },
-  { key: 'crown',         name: 'Gold Crown',    icon: '👑', cost: 250, ge: 0 },
-  { key: 'wings',         name: 'Green Wings',   icon: '🍃', cost: 0,   ge: 100 },
-  { key: 'halo',          name: 'Earth Halo',    icon: '🌍', cost: 0,   ge: 200 },
-  { key: 'leaf_halo',     name: 'Leaf Halo',     icon: '🌿', cost: 0,   ge: 150 },
+  { key: 'bow',           name: 'Floral Bow',    icon: '🎀', cost: 2000,  ge: 0 },
+  { key: 'flower_crown',  name: 'Flower Crown',  icon: '🌸', cost: 3500,  ge: 0 },
+  { key: 'star_sparkles', name: 'Star Sparkles', icon: '✨', cost: 5000,  ge: 0 },
+  { key: 'crown',         name: 'Gold Crown',    icon: '👑', cost: 7500,  ge: 0 },
+  { key: 'wings',         name: 'Green Wings',   icon: '🍃', cost: 0,     ge: 500 },
+  { key: 'halo',          name: 'Earth Halo',    icon: '🌍', cost: 0,     ge: 800 },
+  { key: 'leaf_halo',     name: 'Leaf Halo',     icon: '🌿', cost: 0,     ge: 650 },
 ];
 
 // Purchasable scenery — pure CSS gradients, no art needed
@@ -89,7 +91,7 @@ const NAV = [
   { key: 'dashboard', icon: '🌿', label: 'Home' },
   { key: 'habits',    icon: '✅', label: 'Habits' },
   { key: 'companion', icon: '🌸', label: 'Companion' },
-  { key: 'community', icon: '👥', label: 'Community' },
+  { key: 'courses',   icon: '📚', label: 'Courses' },
   { key: 'more',      icon: '☰',  label: 'More' },
 ];
 
@@ -102,10 +104,12 @@ const GROUPS = {
     { key: 'science',  icon: '🔬', label: 'Science' },
   ],
   more: [
-    { key: 'nourish',  icon: '🥗', label: 'Nourish' },
-    { key: 'planet',   icon: '🌍', label: 'Planet' },
+    { key: 'nourish',   icon: '🥗', label: 'Nourish' },
+    { key: 'community', icon: '👥', label: 'Community' },
+    { key: 'planet',    icon: '🌍', label: 'Planet' },
     { key: 'planner',  icon: '📅', label: 'Planner' },
     { key: 'roadmap',  icon: '🗺️', label: 'Roadmap' },
+    { key: 'about',    icon: 'ℹ️', label: 'About' },
     { key: 'settings', icon: '⚙️', label: 'Settings' },
   ],
 };
@@ -133,18 +137,19 @@ function toast(msg) {
 }
 
 // ── SVG accessory overlays — drawn in code, render over the avatar circle ──
-function AvatarAccessoryOverlay({ itemKey }) {
+// size prop lets the tile (96px) and companion tab (130px) both use this.
+function AvatarAccessoryOverlay({ itemKey, size=130 }) {
   if (!itemKey) return null;
   const overlays = {
     bow: (
-      <svg width="130" height="130" viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
+      <svg {...{width:size,height:size}} viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
         <path d="M48 30 C44 22 56 18 65 23 C74 18 86 22 82 30 C76 28 70 26 65 23 C60 26 54 28 48 30Z" fill="#e8a8b8"/>
         <path d="M48 30 C44 38 56 40 65 36 C74 40 86 38 82 30 C76 32 70 34 65 36 C60 34 54 32 48 30Z" fill="#e8a8b8"/>
         <circle cx="65" cy="30" r="5" fill="#d4788a"/>
       </svg>
     ),
     flower_crown: (
-      <svg width="130" height="130" viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
+      <svg {...{width:size,height:size}} viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
         {[[65,10],[50,16],[80,16],[38,28],[92,28]].map(([cx,cy],i)=>(
           <g key={i}>
             <circle cx={cx} cy={cy} r="7" fill="#f8c8a0"/>
@@ -154,14 +159,14 @@ function AvatarAccessoryOverlay({ itemKey }) {
       </svg>
     ),
     star_sparkles: (
-      <svg width="130" height="130" viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
+      <svg {...{width:size,height:size}} viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
         {[[12,22,'#f4d03f',14],[112,18,'#f4d03f',12],[8,72,'#a8d8a8',10],[118,68,'#a8d8a8',10],[65,5,'#f4d03f',16],[30,105,'#f4d03f',10],[100,108,'#e8c0d8',10]].map(([x,y,c,s],i)=>(
           <text key={i} x={x} y={y} fontSize={s} fill={String(c)} textAnchor="middle">✦</text>
         ))}
       </svg>
     ),
     crown: (
-      <svg width="130" height="130" viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
+      <svg {...{width:size,height:size}} viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
         <path d="M42 36 L50 16 L65 28 L80 16 L88 36 Z" fill="#d4af6a"/>
         <rect x="40" y="36" width="50" height="8" rx="2" fill="#c49a50"/>
         <circle cx="50" cy="16" r="4" fill="#f0d080"/>
@@ -170,18 +175,18 @@ function AvatarAccessoryOverlay({ itemKey }) {
       </svg>
     ),
     wings: (
-      <svg width="130" height="130" viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:1}}>
+      <svg {...{width:size,height:size}} viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:1}}>
         <path d="M8 72 C-4 52 18 28 42 50 C32 62 26 72 30 82 C20 80 10 78 8 72Z" fill="#8aad8a" opacity="0.75"/>
         <path d="M122 72 C134 52 112 28 88 50 C98 62 104 72 100 82 C110 80 120 78 122 72Z" fill="#8aad8a" opacity="0.75"/>
       </svg>
     ),
     halo: (
-      <svg width="130" height="130" viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
+      <svg {...{width:size,height:size}} viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
         <ellipse cx="65" cy="16" rx="28" ry="7" fill="none" stroke="#4ecb71" strokeWidth="4" opacity="0.9"/>
       </svg>
     ),
     leaf_halo: (
-      <svg width="130" height="130" viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
+      <svg {...{width:size,height:size}} viewBox="0 0 130 130" style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
         {[0,40,80,120,160,200,240,280,320].map((angle,i)=>{
           const rad=(angle-90)*Math.PI/180;
           const cx=65+60*Math.cos(rad), cy=65+60*Math.sin(rad);
@@ -235,20 +240,29 @@ function ReflModal({ week, refl, setRefl, submitRefl }) {
   );
 }
 
+// Thresholds required to reach 100% health.
+// Shown in the stats modal so users know exactly what to aim for.
+const PILLAR_THRESHOLDS = {
+  water:       { hit: (v) => v >= 2.5,           label: '2.5L water'        },
+  mindfulness: { hit: (v) => v >= 10,             label: '10 min mindfulness' },
+  movement:    { hit: (v) => v >= 15,             label: '15 min movement'   },
+  sleep:       { hit: (v) => v >= 6,              label: '6+ hours sleep'    },
+};
+
 const STAT_GOALS = {
   water:       { icon:'💧', label:'Hydration', reward:1, type:'add', min:0,
                  increments:[{amt:0.25,label:'Glass +250ml'},{amt:0.5,label:'Bottle +500ml'}],
-                 fmt:(v)=>`${trimNum(v)}L`, hit:(v)=>v>=2, goalText:'2L' },
+                 fmt:(v)=>`${trimNum(v)}L`, hit:PILLAR_THRESHOLDS.water.hit, goalText:'2.5L' },
   mindfulness: { icon:'🧘', label:'Mindfulness', reward:2, type:'add', min:0,
                  increments:[{amt:5,label:'+5 min'},{amt:10,label:'+10 min'}],
-                 fmt:(v)=>`${trimNum(v)} min`, hit:(v)=>v>=10, goalText:'10 min' },
-  steps:       { icon:'🚶', label:'Steps', reward:1, type:'add', min:0, exact:true,
-                 increments:[{amt:1000,label:'+1,000'},{amt:2500,label:'+2,500'}],
-                 fmt:(v)=>v.toLocaleString(), hit:(v)=>v>=8000, goalText:'8,000' },
+                 fmt:(v)=>`${trimNum(v)} min`, hit:PILLAR_THRESHOLDS.mindfulness.hit, goalText:'10 min' },
+  movement:    { icon:'🏃', label:'Movement', reward:1, type:'add', min:0, exact:true,
+                 increments:[{amt:10,label:'+10 min'},{amt:30,label:'+30 min'}],
+                 fmt:(v)=>`${v} min`, hit:PILLAR_THRESHOLDS.movement.hit, goalText:'15 min' },
   sleep:       { icon:'😴', label:'Sleep', reward:2, type:'stepper', min:0, max:14, step:0.5,
-                 fmt:(v)=>`${trimNum(v)}h`, hit:(v)=>v>=7&&v<=9, goalText:'7–9h' },
+                 fmt:(v)=>`${trimNum(v)}h`, hit:PILLAR_THRESHOLDS.sleep.hit, goalText:'6–9h' },
 };
-const STAT_ORDER = ['water','mindfulness','steps','sleep'];
+const STAT_ORDER = ['water','mindfulness','movement','sleep'];
 function trimNum(n){ return Number.isInteger(Number(n)) ? String(Number(n)) : String(Number(Number(n).toFixed(2))); }
 
 const PILL = {
@@ -279,7 +293,32 @@ function StatsLogModal({ manualStats, setManualStats, awardStatHealth, setStatsL
           <h2 style={{fontFamily:'Instrument Serif,serif',fontSize:22}}>Today&apos;s wellbeing</h2>
           <button onClick={()=>setStatsLogOpen(false)} style={{width:30,height:30,borderRadius:'50%',border:'1.5px solid #e8e4de',background:'transparent',cursor:'pointer',fontSize:15}}>✕</button>
         </div>
-        <p style={{fontSize:13,color:'#888',marginBottom:20}}>Tap to add as you go — reach a goal to earn health ❤️</p>
+        {/* 100% health requirements — always visible so users know exactly what to aim for */}
+        <div style={{background:'linear-gradient(135deg,#f3f8f3,#e8f0e8)',border:'1.5px solid #b5ceb5',borderRadius:14,padding:'12px 14px',marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.8px',color:'#5a7a5a',marginBottom:8}}>To reach 100% health today</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
+            {[
+              {icon:'💧',label:'2.5L water',      k:'water'},
+              {icon:'🧘',label:'10 min mindful',  k:'mindfulness'},
+              {icon:'🏃',label:'15 min movement', k:'movement'},
+              {icon:'😴',label:'6+ hours sleep',  k:'sleep'},
+            ].map(({icon,label,k})=>{
+              const met = PILLAR_THRESHOLDS[k].hit(Number(manualStats[k]||0));
+              return (
+                <div key={k} style={{display:'flex',alignItems:'center',gap:7,fontSize:12,color:met?'#3a6a3a':'#888'}}>
+                  <div style={{width:18,height:18,borderRadius:'50%',background:met?'#8aad8a':'#e8e4de',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'white',flexShrink:0,fontWeight:700}}>
+                    {met?'✓':''}
+                  </div>
+                  <span style={{fontWeight:met?600:400}}>{icon} {label}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{fontSize:11,color:'#7a9a7a',marginTop:10,paddingTop:8,borderTop:'1px solid #c5ddc5'}}>
+            + always −5% health if no meals logged in Nourish today
+          </div>
+        </div>
+        <p style={{fontSize:13,color:'#888',marginBottom:16}}>Log as you go — each goal earns health ❤️</p>
         <div style={{display:'flex',flexDirection:'column',gap:14}}>
           {STAT_ORDER.map(key=>{
             const g = STAT_GOALS[key];
@@ -292,7 +331,7 @@ function StatsLogModal({ manualStats, setManualStats, awardStatHealth, setStatsL
                     <div style={{width:34,height:34,borderRadius:10,background:'#f7f3ed',display:'flex',alignItems:'center',justifyContent:'center',fontSize:17,flexShrink:0}}>{g.icon}</div>
                     <div>
                       <div style={{fontSize:13,fontWeight:600,color:'#2a2a2a'}}>{g.label}</div>
-                      <div style={{fontSize:11,color:done?'#5a7a5a':'#aaa'}}>Goal {g.goalText}{done?'  ·  reached ✓':''}</div>
+                      <div style={{fontSize:11,color:done?'#5a7a5a':'#aaa'}}>Target {g.goalText} for 100%{done?'  ·  ✓':''}</div>
                     </div>
                   </div>
                   <div style={{fontFamily:'Instrument Serif,serif',fontSize:22,color:done?'#5a7a5a':'#1a1a1a'}}>{g.fmt(v)}</div>
@@ -456,7 +495,7 @@ function SustainUnlockModal({ onClose }) {
         <div style={{fontSize:48,marginBottom:16}}>🌟</div>
         <h2 style={{fontFamily:'Instrument Serif,serif',fontSize:28,marginBottom:12,color:'#1a1a1a'}}>Sustain Mode Unlocked!</h2>
         <p style={{fontSize:15,color:'#5a7a5a',lineHeight:1.7,marginBottom:24}}>
-          You&apos;ve completed the 4-week Spring Wellness Program! Your foundation is built. Now it&apos;s time to sustain what you&apos;ve created.
+          You&apos;ve completed your 4-week wellness foundation! Your baseline is built. Now it&apos;s time to sustain what you&apos;ve created.
         </p>
         <div style={{background:'white',borderRadius:16,padding:20,marginBottom:24,textAlign:'left'}}>
           <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:1,color:'#888',marginBottom:14}}>What&apos;s Next</div>
@@ -482,12 +521,57 @@ function SustainUnlockModal({ onClose }) {
   );
 }
 
+function HabitIntroModal({ onClose }) {
+  return (
+    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:250}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'linear-gradient(135deg,#f3f8f3,#e8f0e8)',borderRadius:24,padding:36,width:520,maxWidth:'95vw',textAlign:'center',border:'2px solid #8aad8a',boxShadow:'0 8px 32px rgba(90,122,90,0.3)'}}>
+        <div style={{fontSize:48,marginBottom:16}}>🌿</div>
+        <h2 style={{fontFamily:'Instrument Serif,serif',fontSize:26,marginBottom:12,color:'#1a1a1a'}}>How habits work here</h2>
+        <p style={{fontSize:14,color:'#5a7a5a',lineHeight:1.7,marginBottom:22}}>
+          Bloom treats habits as something you earn, not something you're assigned.
+        </p>
+        <div style={{background:'white',borderRadius:16,padding:20,marginBottom:22,textAlign:'left'}}>
+          <div style={{display:'flex',flexDirection:'column',gap:16}}>
+            {[
+              {icon:'🌱',title:'Start with a frequency',text:'Every new habit begins by setting a weekly target — 3x a week, daily, whatever fits your life right now. No pressure to go all-in from day one.'},
+              {icon:'📈',title:'Prove it on your own terms',text:'Research puts habit formation at 18–254 days, averaging around 66. Hit your target consistently and the habit graduates — it becomes part of who you are.'},
+              {icon:'↩️',title:'Slip without guilt',text:"Miss a week? The habit quietly goes back to building mode, ready to re-earn. Nothing resets your history. Nothing punishes you. It's just honest about where things stand."},
+            ].map((item,i)=>(
+              <div key={i} style={{display:'flex',alignItems:'flex-start',gap:12}}>
+                <span style={{fontSize:20,flexShrink:0}}>{item.icon}</span>
+                <div>
+                  <div style={{fontSize:13,fontWeight:600,color:'#2a2a2a',marginBottom:2}}>{item.title}</div>
+                  <div style={{fontSize:12.5,color:'#666',lineHeight:1.6}}>{item.text}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <button onClick={onClose} style={{width:'100%',padding:14,background:'linear-gradient(135deg,#8aad8a,#5a7a5a)',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif',boxShadow:'0 4px 14px rgba(90,122,90,0.3)'}}>
+          Got it 🌱
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [tab, setTab]               = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(
     typeof window !== 'undefined' ? window.innerWidth > 768 : true
   );
   const [shopOpen, setShopOpen]     = useState(false);
+  const [suggestedHabits, setSuggestedHabits] = useState([]); // Home "Build Toward" section
+  const [linkedGoalsByHabitKey, setLinkedGoalsByHabitKey] = useState({}); // habit_key -> goal row, for habits currently being re-proven
+  const [linkedGoalWeekCounts, setLinkedGoalWeekCounts] = useState({}); // goal id -> count logged this week
+  const [goalsLoggedToday, setGoalsLoggedToday]     = useState(() => {
+    // Persist which goals were logged today so page refresh doesn't reset progress
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const raw = JSON.parse(localStorage.getItem('bloom-goals-today') || '{}');
+      return new Set(raw[today] || []);
+    } catch { return new Set(); }
+  });
   const [companionView, setCompanionView] = useState('companion'); // 'companion' | 'decorate'
   const [donateOpen, setDonateOpen] = useState(false);
   const [reflOpen, setReflOpen]     = useState(false);
@@ -539,6 +623,7 @@ export default function Dashboard() {
   const [streakHistoryHabit, setStreakHistoryHabit] = useState(null);
   const [sustainMode, setSustainMode] = useState(false);
   const [sustainUnlockOpen, setSustainUnlockOpen] = useState(false);
+  const [habitIntroOpen, setHabitIntroOpen] = useState(false);
   const [badHabitOpen, setBadHabitOpen] = useState(false);
   const [modeEditorOpen, setModeEditorOpen] = useState(false);
 
@@ -588,7 +673,7 @@ export default function Dashboard() {
 
   const arch = (archetypeKey && ARCHETYPE_INFO[archetypeKey])
     ? ARCHETYPE_INFO[archetypeKey]
-    : { name: archetypeName||'Spring Wellness Program', icon: archetypeIcon||'🌿' };
+    : { name: archetypeName||'Wellness Journey', icon: archetypeIcon||'🌿' };
 
   const lvMap = { foundation:'Foundation', building:'Building', optimization:'Optimisation' };
 
@@ -606,23 +691,109 @@ export default function Dashboard() {
     toast('✅ Habit restored');
   }
 
+  async function releaseHabitFromCard(habitKey, goalId){
+    if(goalId){
+      const { error } = await supabase.from('goals').update({ status: 'archived' }).eq('id', goalId);
+      if(error){ toast('Could not release — try again'); return; }
+    }
+    const updated=[...removedHabits, habitKey];
+    setRemovedHabits(updated);
+    localStorage.setItem('bloom-removed-habits', JSON.stringify(updated));
+    setLinkedGoalsByHabitKey(prev=>{ const n={...prev}; delete n[habitKey]; return n; });
+    toast("✓ Released — restore it from the removed list whenever you're ready");
+  }
+
   const baseHabits = habits.filter(h => !removedHabits.includes(h.key));
   const allHabits = (() => {
     if (!energyModeSetupDone || !energyMode || !habitsByMode) return [...baseHabits, ...customHabits];
     const modeKeys = habitsByMode[energyMode] || [];
-    return [...baseHabits.filter(h => modeKeys.includes(h.key)), ...customHabits];
+    const filtered = baseHabits.filter(h => modeKeys.includes(h.key));
+    // Defensive fallback — if the mode's saved habit stack has gone stale
+    // (e.g. this week's habits carry different keys than whenever Energy
+    // Mode was set up), never silently render zero habits. Show the full
+    // base list instead of an empty screen.
+    return (filtered.length > 0 ? filtered : baseHabits).concat(customHabits);
   })();
-  const pct = allHabits.length>0 ? Math.round((done.length/allHabits.length)*100) : 0;
+  // Progress: normal habits from done[], re-proving habits by frequency-aware check
+  //   daily (7x/week): logged today counts as done
+  //   sub-daily:       on track for the week counts as done
+  //                    (logsThisWeek >= target × daysElapsed/7, min 1)
+  const dayOfWeek = new Date().getDay(); // 0=Sun … 6=Sat
+  const daysElapsed = dayOfWeek === 0 ? 7 : dayOfWeek; // days into current week
+  const reProvingDoneCount = allHabits.filter(h => {
+    const lg = linkedGoalsByHabitKey[h.key];
+    if (!lg || lg.state !== 'goal') return false;
+    const target = lg.weekly_target || 1;
+    const logsThisWeek = linkedGoalWeekCounts[lg.id] || 0;
+    if (target >= 7) {
+      // Daily habit — did they log today?
+      return goalsLoggedToday.has(lg.id);
+    } else {
+      // Sub-daily — are they on track proportionally?
+      const expectedSoFar = Math.max(1, Math.round(target * daysElapsed / 7));
+      return logsThisWeek >= expectedSoFar;
+    }
+  }).length;
+  const doneCount = done.filter(k => !linkedGoalsByHabitKey[k]).length + reProvingDoneCount;
+  const pct = allHabits.length>0 ? Math.round((doneCount/allHabits.length)*100) : 0;
   const mood = health>70 ? 'Thriving · Streak bonus 🔥' : health>40 ? 'Building momentum 💪' : 'Needs care 🌱';
   const equipped = inventory.find(i=>i.equipped);
 
   useEffect(()=>{
     checkDailyReset();
     checkBadHabitDailyReset();
-    if(userId){ load(); loadInv(); loadStreaks(); loadWeeklyData(); loadBadHabitsFromDb(); }
+    if(userId){ load(); loadInv(); loadStreaks(); loadWeeklyData(); loadBadHabitsFromDb(); loadSuggestedHabits(); loadLinkedGoals(); }
   },[userId]);
 
+  // Re-check suggestions + re-proving state every time Home is actually
+  // viewed — not just once per session. Without this, adopting a suggestion
+  // from the Goals tab (or anywhere else) never gets reflected back here,
+  // since nothing else ever tells this list to recompute.
+  useEffect(()=>{
+    if(userId && tab==='dashboard'){ loadSuggestedHabits(); loadLinkedGoals(); }
+  },[tab, userId]);
+
   // ── Award health when a self-care goal is reached (once/day per stat) ──
+  // The 4 pillars that must all be recorded before health can reach 100
+  const CORE_PILLARS = ['water', 'mindfulness', 'movement', 'sleep'];
+
+  function corePillarsCap(stats) {
+    // Step 1: pillars determine the base ceiling (90 or 100)
+    const allPillarsMet = CORE_PILLARS.every(k => PILLAR_THRESHOLDS[k].hit(Number(stats[k] || 0)));
+    const pillarCap = allPillarsMet ? 100 : 90;
+
+    // Step 2: nourish is always an independent -5% if nothing logged today,
+    // regardless of whether pillars are met or not.
+    let nourishLogged = false;
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const foods = JSON.parse(localStorage.getItem('bloom-nourish-foods') || '{}');
+      const todayFoods = foods[today] || [];
+      const all = JSON.parse(localStorage.getItem('bloom-nourish') || '{}');
+      const todayData = all[today] || {};
+      nourishLogged = todayFoods.length > 0 || (todayData.categories || []).length > 0;
+    } catch {}
+
+    return nourishLogged ? pillarCap : Math.max(0, pillarCap - 5);
+    // Examples:
+    //   pillars met + nourish logged     → 100%
+    //   pillars met + no nourish         →  95%
+    //   pillars not met + nourish logged →  90%
+    //   pillars not met + no nourish     →  85%
+  }
+
+  function getPillarStatus(stats) {
+    // Returns array of { key, label, threshold, met, value } for display in modal
+    return CORE_PILLARS.map(k => ({
+      key: k,
+      icon: STAT_GOALS[k].icon,
+      label: STAT_GOALS[k].label,
+      threshold: PILLAR_THRESHOLDS[k].label,
+      met: PILLAR_THRESHOLDS[k].hit(Number(stats[k] || 0)),
+      value: STAT_GOALS[k].fmt(Number(stats[k] || 0)),
+    }));
+  }
+
   async function awardStatHealth(stats) {
     const awarded = { ...(stats.awarded || {}) };
     let gained = 0;
@@ -636,7 +807,9 @@ export default function Dashboard() {
       }
     }
     if (!gained) return stats;
-    const nh = Math.min(100, health + gained);
+    // Cap at 99 unless all 4 pillars have been recorded today
+    const cap = corePillarsCap(stats);
+    const nh = Math.min(cap, health + gained);
     setStats({ health: nh });
     if (userId) {
       try { await supabase.from('user_stats').update({ health: nh }).eq('user_id', userId); } catch {}
@@ -644,6 +817,12 @@ export default function Dashboard() {
     toast(labels.length === 1
       ? `${labels[0]} goal reached · +${gained} health ❤️`
       : `${labels.length} goals reached · +${gained} health ❤️`);
+    // If they just hit 99 with all habits done, nudge them to log pillars
+    if (cap <= 90) {
+      setTimeout(() => toast('💡 Hit 2.5L water · 10 min mindfulness · 15 min movement · 6h sleep to unlock health above 90%'), 2500);
+    } else if (cap === 95) {
+      setTimeout(() => toast('🍽️ Log a meal in Nourish to reach 100% health'), 2500);
+    }
     return { ...stats, awarded };
   }
 
@@ -718,6 +897,13 @@ export default function Dashboard() {
           } catch(e) {
             console.warn('sustain_mode column not found - run add_sustain_mode.sql migration');
           }
+        }
+        // One-time intro for the Habit > Goal > Task system — shows once per
+        // account, ever. Falls back to always-show if the column isn't run
+        // yet (same defensive pattern as sustain_mode above), so it degrades
+        // safely rather than crashing if the migration hasn't landed.
+        if(!u.seen_habit_intro){
+          setHabitIntroOpen(true);
         }
         const displayWeek = inSustainMode ? 4 : Math.min(w, 4);
         setWeek(displayWeek);
@@ -845,6 +1031,98 @@ export default function Dashboard() {
     } catch(e){ console.error('loadBadHabitsFromDb', e); }
   }
 
+  // ── Home: "Build Toward" — suggested habits, leading with the destination,
+  // not the weekly mechanics. Adopting one creates the underlying Goal with
+  // a sensible starting frequency already set — no form, one tap.
+  async function loadSuggestedHabits(){
+    if(!userId) return;
+    try{
+      const existingGoals = await getGoals(userId);
+      const existingNames = new Set(existingGoals.map(g=>g.name.toLowerCase()));
+      const src = archetypeKey || 'default';
+      const pool = SUGGESTED_HABITS_TO_BUILD[src] || SUGGESTED_HABITS_TO_BUILD.default;
+      setSuggestedHabits(pool.filter(sg=>!existingNames.has(sg.name.toLowerCase())));
+    } catch(e){ console.error('loadSuggestedHabits', e); }
+  }
+
+  async function adoptSuggestedHabit(sg){
+    const goal = await createGoal(userId, { name: sg.name, emoji: sg.emoji, category: sg.category, weekly_target: sg.weekly_target, is_custom: false });
+    if(goal){
+      setSuggestedHabits(prev=>prev.filter(h=>h.name!==sg.name));
+      toast(`🎯 Building toward: ${sg.name}`);
+      setTab('habits');
+    }
+  }
+
+  // ── Demoted habits: any habit with no recent streak gets a goal-styled
+  // prompt instead of a checkbox — never silently guessing a frequency for
+  // them. Loaded once alongside everything else on userId.
+  async function loadLinkedGoals(){
+    if(!userId) return;
+    try{
+      const allGoals = await getGoals(userId);
+      const byKey = {};
+      allGoals.forEach(g => { if(g.linked_habit_key) byKey[g.linked_habit_key] = g; });
+      setLinkedGoalsByHabitKey(byKey);
+
+      const weekStart = getWeekStart();
+      const counts = {};
+      for(const g of Object.values(byKey)){
+        if(g.state === 'goal') counts[g.id] = await getGoalWeekCount(g.id, weekStart);
+      }
+      setLinkedGoalWeekCounts(counts);
+    } catch(e){ console.error('loadLinkedGoals', e); }
+  }
+
+  // A habit reads as "stale" — needs a goal prompt instead of a checkbox —
+  // when it has no recent completion. Recency, not just streak value, since
+  // an old frozen streak number can otherwise lie about something abandoned.
+  function isHabitStale(habitKey){
+    const s = streaks[habitKey];
+    // New habit with zero history — show normal checkbox, not a "slipped" prompt.
+    // Only show the frequency picker if the user has previously done this habit
+    // (longest_streak > 0) but hasn't touched it recently.
+    if(!s || !s.longest_streak) return false;
+    if(!s.current_streak) return true;
+    const today = new Date().toISOString().split('T')[0];
+    const yesterday = new Date(Date.now()-86400000).toISOString().split('T')[0];
+    return s.last_completed !== today && s.last_completed !== yesterday;
+  }
+
+  async function setHabitGoalFrequency(h, weeklyTarget){
+    const goal = await createGoal(userId, {
+      name: h.name, emoji: h.emoji, category: h.category,
+      weekly_target: weeklyTarget, is_custom: false, linked_habit_key: h.key,
+    });
+    if(goal){
+      setLinkedGoalsByHabitKey(prev=>({...prev,[h.key]:goal}));
+      setLinkedGoalWeekCounts(prev=>({...prev,[goal.id]:0}));
+      const isFirstTime = !streaks[h.key]?.longest_streak;
+      toast(`🎯 ${isFirstTime ? `Goal set` : `Building back up`} — ${h.name} ${weeklyTarget}x/week`);
+    }
+  }
+
+  async function logLinkedGoalProgress(goal){
+    const ok = await logGoalInstance(goal.id, userId);
+    if(ok){
+      setLinkedGoalWeekCounts(prev=>({...prev,[goal.id]:(prev[goal.id]||0)+1}));
+      setGoalsLoggedToday(prev=>{
+        const next = new Set(prev);
+        next.add(goal.id);
+        // Persist to localStorage so progress survives a page refresh
+        try {
+          const today = new Date().toISOString().split('T')[0];
+          const raw = JSON.parse(localStorage.getItem('bloom-goals-today') || '{}');
+          raw[today] = [...next];
+          // Only keep today's entry — auto-clears yesterday
+          localStorage.setItem('bloom-goals-today', JSON.stringify({[today]: raw[today]}));
+        } catch {}
+        return next;
+      });
+      toast(`✓ ${goal.name} logged`);
+    }
+  }
+
   async function updateStreak(habitKey, completing){
     if(!userId) return;
     const today=new Date().toISOString().split('T')[0];
@@ -883,7 +1161,9 @@ export default function Dashboard() {
     const today=new Date().toISOString().split('T')[0];
     if(!isD){
       if(userId) await supabase.from('habit_completions').insert({user_id:userId,habit_key:h.key,date:today});
-      const nc=coins+h.coins,ng=ge+h.ge,nh=Math.min(100,health+3);
+      const nc=coins+h.coins,ng=ge+h.ge;
+      const habitCap=corePillarsCap(manualStats);
+      const nh=Math.min(habitCap,health+3);
       if(userId) await supabase.from('user_stats').update({coins:nc,green_energy:ng,health:nh}).eq('user_id',userId);
       setStats({coins:nc,greenEnergy:ng,health:nh});
       await updateStreak(h.key, true);
@@ -930,7 +1210,7 @@ export default function Dashboard() {
     const prev=week-1;
     await supabase.from('weekly_reflections').insert({user_id:userId,week_number:prev,what_worked:refl.worked,what_was_challenging:refl.challenging,energy_level:refl.energy});
     await supabase.from('users').update({current_week:week}).eq('id',userId);
-    await supabase.from('community_posts').insert({user_id:userId,user_name:name,user_avatar_emoji:avEmoji,post_type:'week_complete',content:`Completed Week ${prev} of the Spring Wellness Program! 🌱`});
+    await supabase.from('community_posts').insert({user_id:userId,user_name:name,user_avatar_emoji:avEmoji,post_type:'week_complete',content:`Completed Week ${prev} of my wellness journey! 🌱`});
     setReflOpen(false); toast(`✨ Week ${prev} complete!`); load();
   }
 
@@ -1170,6 +1450,80 @@ export default function Dashboard() {
           const d=done.includes(h.key);
           const streak=streaks[h.key]?.current_streak||0;
           const longest=streaks[h.key]?.longest_streak||0;
+          const linkedGoal = linkedGoalsByHabitKey[h.key];
+          const isReProving = linkedGoal && linkedGoal.state === 'goal';
+          // Show goal frequency picker if:
+          // (a) stale — had history but gone quiet, OR
+          // (b) brand new — no linked goal and no streak history yet
+          const isNewHabit = !linkedGoal && !streaks[h.key]?.longest_streak;
+          const needsGoalPrompt = !linkedGoal && (isHabitStale(h.key) || isNewHabit);
+
+          // ── State 2: re-proving — goal-styled progress card, no checkbox ──
+          if(isReProving){
+            const count = linkedGoalWeekCounts[linkedGoal.id]||0;
+            const pct = Math.min(100, Math.round((count/linkedGoal.weekly_target)*100));
+            return(
+              <div key={h.key} style={{border:'1.5px solid #d4af6a',borderRadius:13,padding:13,background:'#fdfaf3'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                  <div style={{display:'flex',alignItems:'center',gap:6}}><span style={{fontSize:20}}>{h.emoji}</span><span style={{fontSize:13,fontWeight:500}}>{h.name}</span></div>
+                  <div style={{fontSize:10,color:'#c47a2a',fontWeight:700}}>{linkedGoal.consecutive_weeks_hit === 0 && !streaks[h.key]?.longest_streak ? '🌱 building' : '🌱 re-proving'}</div>
+                </div>
+                <div style={{height:6,background:'#f0ede8',borderRadius:99,overflow:'hidden',marginBottom:7}}>
+                  <div style={{height:'100%',width:`${pct}%`,background:'linear-gradient(90deg,#e8c890,#d4af6a)',borderRadius:99}}/>
+                </div>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <span style={{fontSize:10,color:'#aaa'}}>{count} of {linkedGoal.weekly_target} this week</span>
+                  <button onClick={()=>logLinkedGoalProgress(linkedGoal)}
+                    style={{fontSize:10,fontWeight:600,color:'white',background:goalsLoggedToday.has(linkedGoal.id)?'#8aad8a':'#d4af6a',border:'none',borderRadius:99,padding:'4px 11px',cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
+                    {goalsLoggedToday.has(linkedGoal.id)
+                      ? (linkedGoal.weekly_target >= 7 ? '✓ Done today' : '✓ Logged')
+                      : '+ Log'}
+                  </button>
+                </div>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:6}}>
+                  <button onClick={()=>{ if(window.confirm(`Release "${h.name}" for now? It'll move to your removed list — restore it anytime.`)) releaseHabitFromCard(h.key, linkedGoal.id); }}
+                    style={{fontSize:10,color:'#ccc',background:'none',border:'none',cursor:'pointer',padding:0,textDecoration:'underline',fontFamily:'DM Sans,sans-serif'}}>
+                    Release for now
+                  </button>
+                  <button onClick={()=>{
+                    const next = window.prompt(`Current target: ${linkedGoal.weekly_target}x/week. Set a new higher target:`, linkedGoal.weekly_target + 1);
+                    const n = parseInt(next);
+                    if(n && n > linkedGoal.weekly_target){
+                      import('../lib/goalsTasks').then(({increaseGoalTarget})=>{
+                        increaseGoalTarget(linkedGoal.id, n).then(ok=>{
+                          if(ok){ toast(`🎯 New target: ${n}x/week`); loadLinkedGoals(); }
+                        });
+                      });
+                    }
+                  }}
+                    style={{fontSize:10,color:'#9a7a2a',background:'none',border:'none',cursor:'pointer',padding:0,textDecoration:'underline',fontFamily:'DM Sans,sans-serif'}}>
+                    Push for more →
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
+          // ── State 3: needs a goal set — prompt, not a checkbox ──
+          if(needsGoalPrompt){
+            return(
+              <div key={h.key} style={{border:'1.5px dashed #c4a882',borderRadius:13,padding:13,background:'#fdf8f3'}}>
+                <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}><span style={{fontSize:20,opacity:0.6}}>{h.emoji}</span><span style={{fontSize:13,fontWeight:500,color:'#a08860'}}>{h.name}</span></div>
+                <p style={{fontSize:11,color:'#b09870',marginBottom:9}}>{isNewHabit ? 'How often do you want to build this habit? Pick a weekly target to start.' : 'Slipped a while back — pick a starting frequency to build it back up.'}</p>
+                <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+                  {[1,2,3,4,5,7].map(n=>(
+                    <button key={n} onClick={()=>setHabitGoalFrequency(h,n)} style={{fontSize:11,fontWeight:600,padding:'5px 10px',borderRadius:99,border:'1.5px solid #d4af6a',background:'white',color:'#9a7a2a',cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>{n===7?'Daily':`${n}x`}</button>
+                  ))}
+                </div>
+                <button onClick={()=>{ if(window.confirm(`Release "${h.name}" for now? It'll move to your removed list — restore it anytime.`)) releaseHabitFromCard(h.key, null); }}
+                  style={{marginTop:8,fontSize:10,color:'#ccc',background:'none',border:'none',cursor:'pointer',padding:0,textDecoration:'underline',fontFamily:'DM Sans,sans-serif'}}>
+                  Release for now
+                </button>
+              </div>
+            );
+          }
+
+          // ── State 1: normal — unchanged ──
           return(
             <div key={h.key} style={{border:`1.5px solid ${d?'#8aad8a':'#e8e4de'}`,borderLeft:h.ge>0?'3px solid #4ecb71':h.isCustom?'3px solid #d4af6a':`1.5px solid ${d?'#8aad8a':'#e8e4de'}`,borderRadius:13,padding:13,background:d?'#f3f8f3':'white',transition:'all 0.2s',position:'relative'}}>
               {h.isCustom&&<div style={{position:'absolute',top:8,right:8,fontSize:9,fontWeight:700,color:'#d4af6a',textTransform:'uppercase',letterSpacing:0.5}}>custom</div>}
@@ -1231,7 +1585,7 @@ export default function Dashboard() {
         </div>
       )}
       <div style={{marginTop:14,padding:'11px 14px',background:'#f7f3ed',borderRadius:12}}>
-        <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:5}}><span>Today&apos;s Progress</span><span style={{fontWeight:600}}>{done.length}/{allHabits.length} complete</span></div>
+        <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:5}}><span>Today&apos;s Progress</span><span style={{fontWeight:600}}>{doneCount}/{allHabits.length} complete</span></div>
         <div style={{height:7,background:'#e8e4de',borderRadius:99,overflow:'hidden'}}><div style={{height:'100%',width:`${pct}%`,background:'linear-gradient(90deg,#8aad8a,#5a7a5a)',borderRadius:99,transition:'width 0.5s'}}/></div>
       </div>
     </div>
@@ -1264,10 +1618,7 @@ export default function Dashboard() {
               );
             })}
             <div style={{flex:1}}/>
-            <button onClick={()=>{ setCompanionView('decorate'); setTab('companion'); }}
-              style={{width:'100%',height:44,borderRadius:12,background:'transparent',border:'none',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',gap:12,padding:'0 14px',color:'#6a9a6a',fontFamily:'DM Sans,sans-serif'}}>
-              <span style={{fontSize:18}}>🛍</span><span>Shop</span>
-            </button>
+
             <button onClick={()=>setTab('settings')}
               style={{width:'100%',height:44,borderRadius:12,background:tab==='settings'?'#2d5a2d':'transparent',border:'none',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',gap:12,padding:'0 14px',color:tab==='settings'?'white':'#6a9a6a',fontFamily:'DM Sans,sans-serif',fontWeight:tab==='settings'?600:400}}>
               <span style={{fontSize:18}}>⚙️</span><span>Settings</span>
@@ -1311,8 +1662,8 @@ export default function Dashboard() {
     p.set('backgroundColor',avatarBg);p.set('body',avatarAccessory||'rounded');p.set('facialHairProbability','0');
     const url=`https://api.dicebear.com/9.x/personas/svg?${p.toString()}`;
     const cs=SCENES.find(s=>s.key===avatarScene)||SCENES[0];
-    // Hunger peek from today's Nourish log
-    let hungry=false;
+    // Nourish fullness from today's log
+    let fullness=0;
     try{
       const all=JSON.parse(localStorage.getItem('bloom-nourish')||'{}');
       const tk=new Date().toISOString().split('T')[0];
@@ -1320,8 +1671,10 @@ export default function Dashboard() {
       const M={whole:25,mixed:22,processed:18,skipped:15};
       const mp=['breakfast','lunch','dinner'].reduce((s,x)=>s+(M[d.meals?.[x]]||0),0);
       const cp=(Math.min((d.categories||[]).length,5)/5)*25;
-      hungry=Math.min(100,Math.round(mp+cp))<40;
+      fullness=Math.min(100,Math.round(mp+cp));
     }catch{}
+    const nourishLabel=fullness>=80?'Well nourished 🌿':fullness>=40?'Nicely nourished':'Needs nourishing 🍽️';
+    const nourishColor=fullness>=80?'linear-gradient(90deg,#70c070,#4ea84e)':fullness>=40?'linear-gradient(90deg,#e8b84a,#d4a030)':'linear-gradient(90deg,#e07070,#c04040)';
     return(
       <div onClick={()=>{setCompanionView('companion');setTab('companion');}}
         style={{background:cs.gradient,border:'1.5px solid #b5ceb5',borderRadius:20,padding:18,textAlign:'center',cursor:'pointer',transition:'transform 0.15s'}}
@@ -1331,14 +1684,24 @@ export default function Dashboard() {
           <div style={{width:96,height:96,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',display:'flex',alignItems:'center',justifyContent:'center',border:'3px solid rgba(255,255,255,0.7)',boxShadow:'0 6px 20px rgba(90,122,90,0.18)',overflow:'hidden',animation:'breathe 4s ease-in-out infinite'}}>
             <object type="image/svg+xml" data={url} style={{width:'100%',height:'100%',objectFit:'cover',pointerEvents:'none'}}><span style={{fontSize:40}}>🧑‍🌿</span></object>
           </div>
-          <div style={{position:'absolute',bottom:2,right:2,background:'#d4af6a',color:'white',fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:8}}>Lv.{level}</div>
-          {hungry&&<div style={{position:'absolute',top:-2,left:-2,background:'white',border:'1.5px solid #e8c8a0',borderRadius:'50% 50% 50% 4px',width:28,height:28,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,boxShadow:'0 2px 8px rgba(0,0,0,0.12)'}}>🍽️</div>}
+          {/* Accessory overlay — scaled to 96px tile */}
+          {equipped?.item_key && (
+            <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2}}>
+              <AvatarAccessoryOverlay itemKey={equipped.item_key} size={96}/>
+            </div>
+          )}
+          <div style={{position:'absolute',bottom:2,right:2,background:'#d4af6a',color:'white',fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:8,zIndex:3}}>Lv.{level}</div>
         </div>
         <div style={{fontFamily:'Instrument Serif,serif',fontSize:16,marginBottom:8}}>{name}</div>
-        <div style={{textAlign:'left',marginBottom:8}}>
-          <div style={{display:'flex',justifyContent:'space-between',fontSize:10,fontWeight:500,marginBottom:3}}><span>❤️ Health</span><span>{health}%</span></div>
-          <div style={{height:6,background:'rgba(0,0,0,0.1)',borderRadius:99,overflow:'hidden'}}><div style={{height:'100%',width:`${health}%`,background:health>60?'linear-gradient(90deg,#70c070,#4ea84e)':health>30?'linear-gradient(90deg,#e8b84a,#d4a030)':'linear-gradient(90deg,#e07070,#c04040)',borderRadius:99}}/></div>
-        </div>
+        {[
+          {label:'❤️ Health',val:health,fill:health>60?'linear-gradient(90deg,#70c070,#4ea84e)':health>30?'linear-gradient(90deg,#e8b84a,#d4a030)':'linear-gradient(90deg,#e07070,#c04040)'},
+          {label:'🍽️ Nourish',val:fullness,fill:nourishColor,sub:nourishLabel},
+        ].map(b=>(
+          <div key={b.label} style={{textAlign:'left',marginBottom:7}}>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:10,fontWeight:500,marginBottom:3}}><span>{b.label}</span><span>{b.val}%</span></div>
+            <div style={{height:5,background:'rgba(0,0,0,0.1)',borderRadius:99,overflow:'hidden'}}><div style={{height:'100%',width:`${b.val}%`,background:b.fill,borderRadius:99,transition:'width 0.8s'}}/></div>
+          </div>
+        ))}
         <div style={{display:'flex',gap:6,marginBottom:10}}>
           {[{v:coins.toLocaleString(),l:'🪙',c:'#d4af6a'},{v:ge,l:'⚡',c:'#38a855'}].map(x=>(
             <div key={x.l} style={{flex:1,background:'rgba(255,255,255,0.6)',borderRadius:9,padding:'6px 4px'}}><div style={{fontSize:13,fontWeight:700,fontFamily:'Syne,sans-serif',color:x.c}}>{x.v}</div><div style={{fontSize:9,color:'#888'}}>{x.l}</div></div>
@@ -1363,7 +1726,7 @@ export default function Dashboard() {
       <div style={{padding:'22px 26px',maxWidth:1200}}>
         <div style={{marginBottom:20}}>
           <h1 style={{fontFamily:'Instrument Serif,serif',fontSize:28,fontWeight:400,color:'#1a1a1a',marginBottom:4}}>Good morning, {name} ✨</h1>
-          <p style={{fontSize:13,color:'#888'}}>{sustainMode?'🌟 Sustain Mode':`Week ${week} of 4`} · Day {day} · {habits.length-done.length} habits remaining</p>
+          <p style={{fontSize:13,color:'#888'}}>{sustainMode?'🌟 Sustain Mode':`Week ${week} of 4`} · Day {day} · {Math.max(0, allHabits.length - doneCount)} habits remaining</p>
           <div style={{display:'inline-flex',alignItems:'center',gap:6,background:sustainMode?'#f8fcf8':'#f3f8f3',border:`1px solid ${sustainMode?'#8aad8a':'#b5ceb5'}`,borderRadius:99,padding:'4px 12px',fontSize:12,color:'#5a7a5a',fontWeight:500,marginTop:8}}>
             {arch.icon} {arch.name} · {sustainMode?'Building Forever':lvMap[lvl]||'Building'}
           </div>
@@ -1375,7 +1738,7 @@ export default function Dashboard() {
               {[
                 {icon:'😴',v:manualStats.sleep||'—',l:'Sleep',key:'sleep'},
                 {icon:'🧘',v:manualStats.mindfulness?`${manualStats.mindfulness}min`:'—',l:'Mindfulness',key:'mindfulness'},
-                {icon:'🚶',v:manualStats.steps?manualStats.steps.toLocaleString():'—',l:'Steps',key:'steps'},
+                {icon:'🏃',v:manualStats.movement?`${manualStats.movement} min`:'—',l:'Movement',key:'movement'},
                 {icon:'💧',v:manualStats.water?`${manualStats.water}L`:'—',l:'Hydration',key:'water'},
               ].map(x=>(
                 <div key={x.l} onClick={()=>setStatsLogOpen(true)} style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:16,padding:16,cursor:'pointer',transition:'all 0.2s'}}
@@ -1388,6 +1751,20 @@ export default function Dashboard() {
                 </div>
               ))}
             </div>
+            {suggestedHabits.length > 0 && (
+              <div style={{background:'linear-gradient(135deg,#f3f8f3,#f7f3ed)',border:'1.5px solid #b5ceb5',borderRadius:20,padding:20}}>
+                <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#5a7a5a',marginBottom:4}}>Build Toward</div>
+                <p style={{fontSize:12,color:'#7a8a7a',marginBottom:14}}>Prove one of these consistently and it becomes a real habit.</p>
+                <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+                  {suggestedHabits.map(sg=>(
+                    <button key={sg.name} onClick={()=>adoptSuggestedHabit(sg)} title={sg.why}
+                      style={{display:'flex',alignItems:'center',gap:6,padding:'10px 16px',background:'white',border:'1.5px solid #b5ceb5',borderRadius:99,cursor:'pointer',fontSize:13,fontWeight:600,color:'#3a6a3a',fontFamily:'DM Sans,sans-serif'}}>
+                      {sg.emoji} {sg.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <HabitsGrid/>
             <div style={{background:'#1a1a16',border:'1.5px solid rgba(255,255,255,0.06)',borderRadius:20,padding:20,color:'white'}}>
                 <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#444438',marginBottom:14}}>Quick Start</div>
@@ -1427,6 +1804,68 @@ export default function Dashboard() {
       </div>
     );
   };
+
+  // ── About — plain-language explainer + a slot for a screen-recording walk-
+  // through video. Edit ABOUT_VIDEO_URL below once you've recorded one —
+  // paste a YouTube embed URL (https://www.youtube.com/embed/VIDEO_ID) or a
+  // direct video file link. Leave it empty and the placeholder shows instead.
+  // Same video can double as marketing content elsewhere — no separate cut needed.
+  const ABOUT_VIDEO_URL = '';
+
+  const TabAbout=()=>(
+    <div style={{padding:'22px 26px',maxWidth:760}}>
+      <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:'20px 24px',marginBottom:20}}>
+        <div style={{aspectRatio:'16/9',background:'#1a1a16',borderRadius:14,marginBottom:18,display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden'}}>
+          {ABOUT_VIDEO_URL ? (
+            ABOUT_VIDEO_URL.includes('youtube.com/embed')
+              ? <iframe src={ABOUT_VIDEO_URL} title="How Bloom works" style={{width:'100%',height:'100%',border:'none'}} allowFullScreen/>
+              : <video src={ABOUT_VIDEO_URL} controls style={{width:'100%',height:'100%'}}/>
+          ) : (
+            <div style={{textAlign:'center',color:'#666'}}>
+              <div style={{fontSize:32,marginBottom:8}}>🎬</div>
+              <div style={{fontSize:13}}>A walkthrough video goes here</div>
+            </div>
+          )}
+        </div>
+        <h2 style={{fontFamily:'Instrument Serif,serif',fontSize:24,marginBottom:10,color:'#1a1a1a'}}>How Bloom works</h2>
+        <p style={{fontSize:14,color:'#555',lineHeight:1.7,marginBottom:18}}>
+          Bloom is built around one idea: habits are earned, not assigned.
+        </p>
+        <div style={{display:'flex',flexDirection:'column',gap:16}}>
+          {[
+            {emoji:'🌱',title:'Start with a frequency',body:"Every habit begins by setting a weekly target — 3x a week, daily, whatever fits your life. No pressure to go all-in from day one."},
+            {emoji:'📈',title:'Prove it consistently',body:'Research puts habit formation at 18–254 days, averaging around 66. Hit your target week after week and the habit graduates — it becomes established, tracked with your streak and your health score.'},
+            {emoji:'↩️',title:'Slip without guilt',body:"Miss a week? The habit quietly goes back to building mode. Nothing resets your history, nothing punishes you — it's just honest about where things stand. Pick back up when you're ready."},
+            {emoji:'🌟',title:'Established habits',body:'Once a habit is established it lives in your daily list as a simple checkbox. Consistency is the only thing that matters here — coins, streaks, and your avatar all reflect it.'},
+          ].map(x=>(
+            <div key={x.title} style={{display:'flex',gap:14,alignItems:'flex-start'}}>
+              <div style={{fontSize:22,flexShrink:0}}>{x.emoji}</div>
+              <div>
+                <div style={{fontSize:14,fontWeight:600,color:'#2a2a2a',marginBottom:3}}>{x.title}</div>
+                <div style={{fontSize:13,color:'#777',lineHeight:1.6}}>{x.body}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p style={{fontSize:13,color:'#555',lineHeight:1.7,marginTop:18}}>
+          Everything else — routines, nourish logging, your companion — builds on top of this foundation.
+        </p>
+      </div>
+
+      <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:'20px 24px',marginBottom:20}}>
+        <h2 style={{fontFamily:'Instrument Serif,serif',fontSize:20,marginBottom:14,color:'#1a1a1a'}}>🔒 Your Data & Privacy</h2>
+        <p style={{fontSize:13,color:'#555',lineHeight:1.7,marginBottom:14}}>
+          Your wellness data is yours. Bloom is built to respect your privacy — we don't sell data, track you, or share your health information with anyone.
+        </p>
+        <p style={{fontSize:13,color:'#555',lineHeight:1.7,marginBottom:16}}>
+          <strong>GDPR Rights:</strong> You can access, edit, export, or delete your data anytime. Go to Settings → Delete My Data, or read the full <a href="/privacy" target="_blank" style={{color:'#8aad8a',fontWeight:600,textDecoration:'none'}}>Privacy Policy</a>.
+        </p>
+        <div style={{background:'#f7f3ed',borderRadius:12,padding:12,fontSize:12,color:'#666',lineHeight:1.6}}>
+          Built by Jess (MSc Biomedical Sciences & Public Health). Every habit is backed by peer-reviewed research.
+        </div>
+      </div>
+    </div>
+  );
 
   const TabHabits=()=>(
     <div style={{padding:'22px 26px',maxWidth:900}}>
@@ -1797,7 +2236,7 @@ export default function Dashboard() {
             {l:'Wellness Archetype',v:`${arch.icon} ${arch.name}`},
             {l:'Lifestyle Level',v:lvMap[lvl]||'Building'},
             {l:'Chronotype',v:chronotype?chronotype.charAt(0).toUpperCase()+chronotype.slice(1):'Bear'},
-            {l:'Program',v:'Spring Wellness 2026'},
+            {l:'Program',v:'Wellness Guide'},
             {l:'Access',v:'Founding Beta · Lifetime'},
           ].map(r=>(
             <div key={r.l} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:'1px solid #f0ece6'}}>
@@ -1821,8 +2260,46 @@ export default function Dashboard() {
 
         {isAdmin && <NotionSyncCard toast={toast} />}
 
+        <div style={{background:'#fff5f5',border:'1.5px solid #e8c8c8',borderRadius:20,padding:20,marginBottom:16}}>
+          <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#c85a5a',marginBottom:8}}>🔒 Privacy & Data</div>
+          <p style={{fontSize:13,color:'#555',lineHeight:1.6,marginBottom:12}}>
+            Your data is always yours. Read our <a href="/privacy" target="_blank" style={{color:'#8aad8a',fontWeight:600,textDecoration:'none'}}>Privacy Policy</a> and GDPR rights.
+          </p>
+          <button onClick={()=>{ 
+            const userId = useStore.getState().userId;
+            if(!userId) { toast('Error: User ID not found'); return; }
+            if(window.confirm('⚠️ Delete all your data?\n\nThis includes:\n• All habit logs\n• Nutrition data\n• Profile & avatar\n• Community posts\n\nThis action CANNOT be undone.')) {
+              if(window.confirm('Last chance! Click OK to permanently delete everything.')) {
+                fetch('/api/gdpr/delete-user', {
+                  method:'POST',
+                  headers:{'Content-Type':'application/json'},
+                  body:JSON.stringify({userId})
+                }).then(r=>r.json()).then(data=>{
+                  if(data.success) {
+                    toast('✅ Your data has been deleted.');
+                    setTimeout(()=>{
+                      localStorage.removeItem('bloom-storage'); 
+                      localStorage.removeItem('bloom-daily-stats'); 
+                      localStorage.removeItem('bloom-routine-log'); 
+                      localStorage.removeItem('bloom-routine-freqs'); 
+                      window.location.href='/';
+                    },1000);
+                  } else {
+                    toast('❌ Deletion failed: '+data.error);
+                  }
+                }).catch(e=>{toast('❌ Error: '+e.message);});
+              }
+            }
+          }}
+            style={{width:'100%',padding:'10px 16px',background:'#fff5f5',border:'1.5px solid #e8c8c8',borderRadius:10,fontSize:12,fontWeight:600,color:'#c85a5a',cursor:'pointer',fontFamily:'DM Sans,sans-serif',transition:'all 0.2s'}}
+            onMouseOver={e=>{e.currentTarget.style.background='#f5e8e8';e.currentTarget.style.borderColor='#d8b8b8';}}
+            onMouseOut={e=>{e.currentTarget.style.background='#fff5f5';e.currentTarget.style.borderColor='#e8c8c8';}}>
+            Delete All My Data
+          </button>
+        </div>
+
         <button onClick={()=>{ if(window.confirm('Are you sure you want to sign out?')){ localStorage.removeItem('bloom-storage'); localStorage.removeItem('bloom-daily-stats'); localStorage.removeItem('bloom-routine-log'); localStorage.removeItem('bloom-routine-freqs'); window.location.reload(); } }}
-          style={{width:'100%',marginTop:12,padding:'13px',background:'transparent',border:'1.5px solid #e8e4de',borderRadius:12,fontSize:13,fontWeight:600,color:'#888',cursor:'pointer',fontFamily:'DM Sans,sans-serif',transition:'all 0.2s'}}
+          style={{width:'100%',marginTop:0,padding:'13px',background:'transparent',border:'1.5px solid #e8e4de',borderRadius:12,fontSize:13,fontWeight:600,color:'#888',cursor:'pointer',fontFamily:'DM Sans,sans-serif',transition:'all 0.2s'}}
           onMouseOver={e=>{e.currentTarget.style.borderColor='#e07070';e.currentTarget.style.color='#e07070';}}
           onMouseOut={e=>{e.currentTarget.style.borderColor='#e8e4de';e.currentTarget.style.color='#888';}}>
           Sign out
@@ -1940,16 +2417,19 @@ export default function Dashboard() {
   const titles={
     dashboard:{t:`Good morning, ${name} ✨`,s:`Week ${week} · Day ${day} · ${arch.icon} ${arch.name}`},
     habits:{t:'Habits ✅',s:`${done.length}/${habits.length} complete today`},
+
     routines:{t:routine?`${ROUTINES[routine]?.label} ${ROUTINES[routine]?.icon}`:'Routines ⏱',s:routine?`Step ${rStep+1} of ${ROUTINES[routine]?.steps.length}`:'Guided step-by-step sessions'},
     planner:{t:'Planner 📅',s:`Week ${week} of 4`},
     planet:{t:'Planet 🌍',s:`${ge} GE generated`},
-    community:{t:'Community 👥',s:'Spring Wellness Program cohort'},
+    community:{t:'Community 👥',s:'Your wellness cohort'},
     settings:{t:'Profile & Settings ⚙️',s:`${arch.icon} ${arch.name} · ${lvMap[lvl]||'Building'}`},
     badhabits:{t:'Quit Habits 🚫',s:"Track what you're reducing · slips cost health · awareness is the first step"},
     science:{t:'Habit Science 🔬',s:'The research behind every habit in your program'},
     nourish:{t:'Nourish 🥗',s:'Track what you ate today — real-life amounts, zero guilt'},
     companion:{t:'Your Companion 🌸',s:'Tend to your companion · feed · decorate'},
+    courses:{t:'Courses & Coaching 📚',s:'Living Well · 1:1 sessions · what\'s coming'},
     roadmap:{t:'Roadmap 🗺️',s:"Vote for features · suggest ideas · see what's coming"},
+    about:{t:'About Bloom ℹ️',s:'How the app works, and why'},
     analytics:{t:'Quiz Analytics 📊',s:'Conversion funnel & drop-off analysis'},
   };
   const cur=titles[tab]||titles.dashboard;
@@ -1982,6 +2462,7 @@ export default function Dashboard() {
           {tab==='dashboard'  && <TabDashboard/>}
           {tab==='habits'     && <TabHabits/>}
           {tab==='companion'  && <TabCompanion key={companionView} userId={userId} toast={toast} initialView={companionView} onCustomise={()=>setTab('settings')} onNavigate={(t)=>setTab(t)}/>}
+
           {tab==='science'    && <TabHabitReview habits={habits} customHabits={customHabits}/>}
           {tab==='nourish'    && <TabNourish userId={userId} coins={coins} setStats={setStats} toast={toast}/>}
           {tab==='routines'   && <TabRoutinesEnhanced routineLog={routineLog} setRoutineLog={setRoutineLog} routineFreqs={routineFreqs} setRoutineFreqs={setRoutineFreqs} coins={coins} userId={userId} toast={toast} allHabits={allHabits}/>}
@@ -1989,7 +2470,9 @@ export default function Dashboard() {
           {tab==='planet'     && <TabPlanet/>}
           {tab==='community'  && <TabCommunity/>}
           {tab==='settings'   && <TabSettings/>}
+          {tab==='courses'    && <TabCourses userId={userId} toast={toast}/>}
           {tab==='roadmap'    && <TabRoadmap onFeedback={()=>setFeedbackOpen(true)}/>}
+          {tab==='about'      && <TabAbout/>}
           {tab==='analytics'  && isAdmin && <QuizAnalytics/>}
         </div>
       </div>
@@ -2002,6 +2485,13 @@ export default function Dashboard() {
       {feedbackOpen  && <FeedbackModal onClose={()=>setFeedbackOpen(false)}/>}
       {streakHistoryOpen && <StreakHistoryModal habit={streakHistoryHabit} streakData={streaks[streakHistoryHabit?.key]} onClose={()=>setStreakHistoryOpen(false)}/>}
       {sustainUnlockOpen && <SustainUnlockModal onClose={()=>setSustainUnlockOpen(false)}/>}
+      {habitIntroOpen && <HabitIntroModal onClose={async()=>{
+        setHabitIntroOpen(false);
+        if(userId){
+          try{ await supabase.from('users').update({seen_habit_intro:true}).eq('id',userId); }
+          catch(e){ console.warn('seen_habit_intro column not found - run the migration to persist this'); }
+        }
+      }}/>}
       <EnergyModeModal habits={baseHabits} archetypeKey={archetypeKey}/>
       {modeEditorOpen && <ModeEditor habits={baseHabits} archetypeKey={archetypeKey} onClose={()=>setModeEditorOpen(false)}/>}
       <div id="bloom-toast" className="toast" style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%) translateY(20px)',background:'#1a1a16',color:'white',padding:'12px 20px',borderRadius:99,fontSize:13,fontWeight:500,opacity:0,transition:'all 0.3s',zIndex:300,whiteSpace:'nowrap',pointerEvents:'none'}}/>

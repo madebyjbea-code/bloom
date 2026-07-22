@@ -32,6 +32,39 @@ async function trackQuizEvent(eventType, metadata = {}) {
   }
 }
 
+// ─── SAVE QUIZ ANSWERS ────────────────────────────────────
+async function saveQuizAnswers(userId, scores) {
+  try {
+    const answers = [
+      { q_num: 1, answer: (scores.chrono?.[0] || 'bear'), category: 'chronotype' },
+      { q_num: 2, answer: (scores.energy?.[0] || 'midday'), category: 'energy' },
+      { q_num: 3, answer: (scores.morning?.[0] || 'gradual'), category: 'morning' },
+      { q_num: 4, answer: (scores.nutBarrier?.[0] || 'time'), category: 'nutrition_barrier' },
+      { q_num: 5, answer: (scores.mealStyle?.[0] || 'grab'), category: 'meal_style' },
+      { q_num: 6, answer: (scores.schedule?.[0] || 'structured'), category: 'schedule' },
+      { q_num: 7, answer: (scores.movTime?.[0] || 'moderate'), category: 'movement_time' },
+      { q_num: 8, answer: (scores.activity?.[0] || 'light'), category: 'activity_level' },
+      { q_num: 9, answer: (scores.stress?.[0] || 'physical'), category: 'stress_response' },
+      { q_num: 10, answer: (scores.stressMgmt?.[0] || 'occasional'), category: 'stress_management' },
+      { q_num: 11, answer: (scores.drain?.[0] || ''), category: 'drainage_factors' },
+      { q_num: 12, answer: (scores.level?.[0] || 'building'), category: 'lifestyle_level' },
+      { q_num: 13, answer: (scores.goal?.[0] || 'energy'), category: 'spring_goals' },
+    ];
+
+    await supabase.from('quiz_answers').insert(
+      answers.map(a => ({
+        user_id: userId,
+        question_number: a.q_num,
+        selected_answer: a.answer,
+        category: a.category,
+      }))
+    );
+  } catch (err) {
+    console.error('Failed to save quiz answers:', err);
+    // Don't throw — user onboarding shouldn't fail if analytics break
+  }
+}
+
 // ─── QUIZ DATA ───────────────────────────────────────────
 const QUESTIONS = [
   {
@@ -286,8 +319,18 @@ export default function Onboarding({ onComplete }) {
   }
   const setHabits = useStore((s) => s.setHabits);
 
-  // Track quiz start on mount
+  // Track quiz start on mount and restore from localStorage
   useEffect(() => {
+    // Restore quiz scores from localStorage if user is mid-quiz
+    const saved = localStorage.getItem('bloom_quiz_scores');
+    if (saved) {
+      try {
+        setCollectedScores(JSON.parse(saved));
+      } catch (err) {
+        console.error('Failed to restore quiz scores:', err);
+      }
+    }
+
     if (phase === 'intro') {
       trackQuizEvent('quiz_started');
     }
@@ -333,6 +376,9 @@ export default function Onboarding({ onComplete }) {
     else collect(ans);
 
     setCollectedScores(newScores);
+    
+    // Persist scores to localStorage so they survive refresh
+    localStorage.setItem('bloom_quiz_scores', JSON.stringify(newScores));
 
     if (current < QUESTIONS.length - 1) {
       setCurrent(current + 1);
@@ -540,6 +586,12 @@ export default function Onboarding({ onComplete }) {
         post_type: 'milestone',
       });
 
+      // Save quiz answers to Supabase
+      await saveQuizAnswers(user.id, collectedScores);
+
+      // Clear localStorage since quiz is complete
+      localStorage.removeItem('bloom_quiz_scores');
+
       const habits = getHabitsForUser(chronotype, 1);
       setHabits(habits);
       onComplete();
@@ -573,6 +625,36 @@ export default function Onboarding({ onComplete }) {
         .order('created_at', { ascending: false });
 
       if (!existing || existing.length === 0) {
+        // Safety net: User purchased code but didn't finish onboarding
+        // Check if code is valid and still available
+        const { data: validCode } = await supabase
+          .from('access_codes')
+          .select('*')
+          .eq('code', code)
+          .eq('redeemed', false)
+          .single();
+
+        if (validCode) {
+          // Valid unused code — they need to complete onboarding
+          // Check if they have quiz scores in localStorage
+          const saved = localStorage.getItem('bloom_quiz_scores');
+          if (saved) {
+            try {
+              const scores = JSON.parse(saved);
+              setCollectedScores(scores);
+              setAccessCode(code);
+              setPhase('name');
+              return;
+            } catch (err) {
+              console.error('Failed to restore scores:', err);
+            }
+          }
+          // No localStorage scores — send them back to quiz
+          setSigninError('Complete your quiz first to set up your program.');
+          setSigninLoading(false);
+          return;
+        }
+
         setSigninError('No account found with that code. Check your purchase email or start fresh.');
         setSigninLoading(false);
         return;

@@ -37,7 +37,7 @@ export default function CustomHabitModal({ onClose }) {
   const [tab, setTab]             = useState('suggest');
   const [habitName, setHabitName] = useState('');
   const [selectedEmoji, setEmoji] = useState('🌿');
-  const [category, setCategory]   = useState('wellness'); // ← was missing
+  const [category, setCategory]   = useState('wellness');
   const [coins, setCoins]         = useState(20);
   const [time, setTime]           = useState('');
   const [added, setAdded]         = useState([]);
@@ -80,7 +80,6 @@ export default function CustomHabitModal({ onClose }) {
     setAdded(prev => [...prev, key]);
   }
 
-  // ← removed TypeScript type annotation (name: string) — this is a .jsx file
   const alreadyAdded = (name) => customHabits.some(h => h.name === name);
 
   return (
@@ -98,7 +97,7 @@ export default function CustomHabitModal({ onClose }) {
               Add a Habit
             </h2>
             <p style={{ fontSize: 12, color: '#888' }}>
-              From your Spring guide, or build your own
+              From your wellness guide, or build your own
             </p>
           </div>
           <button
@@ -108,7 +107,7 @@ export default function CustomHabitModal({ onClose }) {
         </div>
 
         <div style={{ display: 'flex', background: '#f7f3ed', border: '1.5px solid #e8e4de', borderRadius: 12, padding: 4, marginBottom: 20 }}>
-          {[['suggest','📋 From Spring Guide'],['custom','✏️ Build my own']].map(([key, label]) => (
+          {[['suggest','📋 From Wellness Guide'],['custom','✏️ Build my own']].map(([key, label]) => (
             <button
               key={key}
               onClick={() => setTab(key)}
@@ -122,7 +121,7 @@ export default function CustomHabitModal({ onClose }) {
         {tab === 'suggest' && (
           <div>
             <div style={{ background: '#f3f8f3', border: '1px solid #b5ceb5', borderRadius: 12, padding: '12px 14px', marginBottom: 16, fontSize: 12, color: '#5a7a5a', lineHeight: 1.6 }}>
-              🌿 These habits are taken directly from the <strong>BLOOM Spring Guide Week 1</strong>. Add the ones that match your archetype program and track them here.
+              🌿 These habits are taken directly from the <strong>Bloom Wellness Guide</strong>. Add the ones that fit where you're starting from and track them here.
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {GUIDE_SUGGESTIONS.map(s => {

@@ -356,6 +356,7 @@ export function ModeEditor({ habits, archetypeKey, onClose }) {
   const removeHabitFromMode = useStore(s => s.removeHabitFromMode);
   const [activeMode, setActiveMode] = useState('low');
   const [showAddPanel, setShowAddPanel] = useState(false);
+  const [showAllHabitsView, setShowAllHabitsView] = useState(false);
 
   const key = archetypeKey || 'steadybuilder';
   const suggestions = ARCHETYPE_SUGGESTIONS[key] || ARCHETYPE_SUGGESTIONS.steadybuilder;
@@ -372,6 +373,12 @@ export function ModeEditor({ habits, archetypeKey, onClose }) {
 
   const cfg = MODE_CONFIG[activeMode];
 
+  // All habits + suggestions for overview
+  const allAvailableHabits = [
+    ...habits,
+    ...ARCHETYPE_SUGGESTIONS[key].filter(s => !habits.some(h => h.key === s.key)),
+  ];
+
   return (
     <div style={styles.overlay}>
       <div style={{...styles.modal, maxHeight:'85vh', overflowY:'auto'}}>
@@ -379,6 +386,63 @@ export function ModeEditor({ habits, archetypeKey, onClose }) {
           <div style={styles.title}>Edit Energy Modes</div>
           <button onClick={onClose} style={{...styles.ghostBtn, padding:'6px 12px', fontSize:13}}>✕</button>
         </div>
+
+        {/* Toggle between All Habits Overview and Energy Mode Editor */}
+        <div style={{display:'flex',gap:8,marginBottom:16}}>
+          <button
+            onClick={() => setShowAllHabitsView(false)}
+            style={{flex:1,padding:'10px 14px',borderRadius:10,fontWeight:600,fontSize:12,fontFamily:'DM Sans,sans-serif',background:!showAllHabitsView?'#5a7a5a':'#f0f7f0',color:!showAllHabitsView?'white':'#5a7a5a',border:!showAllHabitsView?'none':'1.5px solid #b5ceb5',cursor:'pointer'}}
+          >
+            By Energy Level
+          </button>
+          <button
+            onClick={() => setShowAllHabitsView(true)}
+            style={{flex:1,padding:'10px 14px',borderRadius:10,fontWeight:600,fontSize:12,fontFamily:'DM Sans,sans-serif',background:showAllHabitsView?'#5a7a5a':'#f0f7f0',color:showAllHabitsView?'white':'#5a7a5a',border:showAllHabitsView?'none':'1.5px solid #b5ceb5',cursor:'pointer'}}
+          >
+            All Habits
+          </button>
+        </div>
+
+        {showAllHabitsView ? (
+          // ────────── ALL HABITS OVERVIEW ──────────────────────────
+          <div>
+            <div style={{fontSize:12,fontWeight:700,textTransform:'uppercase',letterSpacing:'1px',color:'#888',marginBottom:12}}>
+              All available habits & suggestions
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:8,maxHeight:400,overflowY:'auto'}}>
+              {allAvailableHabits.map(h => {
+                const inLow = (habitsByMode.low || []).includes(h.key);
+                const inNormal = (habitsByMode.normal || []).includes(h.key);
+                const inHigh = (habitsByMode.high || []).includes(h.key);
+                const statusLabel = inLow ? 'Low' : inNormal ? 'Normal' : inHigh ? 'High' : '—';
+                const statusColor = inLow ? '#8aad8a' : inNormal ? '#888' : inHigh ? '#d4af6a' : '#ccc';
+                return (
+                  <div key={h.key} style={{display:'flex',alignItems:'flex-start',gap:10,padding:'12px 14px',background:'white',border:'1.5px solid #e8e4de',borderRadius:11}}>
+                    <span style={{fontSize:18,flexShrink:0}}>{h.emoji}</span>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontWeight:500,color:'#333',marginBottom:2}}>{h.name}</div>
+                      {h.why && <div style={{fontSize:11,color:'#888',lineHeight:1.4}}>{h.why}</div>}
+                      {h.time && <div style={{fontSize:10,color:'#aaa',marginTop:4}}>⏰ {h.time}</div>}
+                    </div>
+                    <div style={{flexShrink:0,textAlign:'right'}}>
+                      <div style={{fontSize:10,fontWeight:700,color:statusColor,textTransform:'uppercase',letterSpacing:'0.5px'}}>{statusLabel}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{marginTop:16,paddingTop:14,borderTop:'1px solid #f0ece6'}}>
+              <p style={{fontSize:11,color:'#888',lineHeight:1.6,marginBottom:12}}>
+                💡 <strong>Tip:</strong> Use the "By Energy Level" tab to organize habits into Low, Normal, or High energy stacks. Your daily energy will show the right habits for how you're feeling.
+              </p>
+              <button onClick={() => setShowAllHabitsView(false)} style={{width:'100%',padding:'12px',background:'#5a7a5a',color:'white',border:'none',borderRadius:10,fontWeight:600,fontSize:13,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
+                Start Organizing →
+              </button>
+            </div>
+          </div>
+        ) : (
+          // ────────── BY ENERGY LEVEL EDITOR ──────────────────────────────
+          <div>
 
         {/* Mode tabs */}
         <div style={{display:'flex',gap:6,marginBottom:20,background:'#f7f3ed',borderRadius:10,padding:4}}>
@@ -483,6 +547,8 @@ export function ModeEditor({ habits, archetypeKey, onClose }) {
             ✅ Done editing
           </button>
         </div>
+          </div>
+        )}
       </div>
     </div>
   );
