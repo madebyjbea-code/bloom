@@ -4,7 +4,7 @@
 // Describes Living Well and handles coaching waitlist/interest capture
 
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase';
 
 const SPOTS_TOTAL   = 3;  // Change this to open more spots
 const WAITLIST_OPEN = true; // Set false to hide waitlist entirely
@@ -97,6 +97,7 @@ export default function TabCourses({ userId, toast }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             {TAG('#3a6a3a', '#f0f7f0', 'Coming Soon')}
+            {TAG('#9a7a2a', '#fdf8ed', 'Evergreen')}
           </div>
           <span style={{ fontSize: 28 }}>🌱</span>
         </div>
@@ -251,11 +252,14 @@ export default function TabCourses({ userId, toast }) {
             <div style={{ fontSize: 11, color: '#aaa', marginBottom: 2 }}>6-week programme</div>
             <div style={{ fontFamily: 'Instrument Serif, serif', fontSize: 22, color: '#1a1a1a' }}>€350</div>
           </div>
+          <div style={{ fontSize: 11, color: '#888', textAlign: 'right', lineHeight: 1.6, maxWidth: 160 }}>
+            Final price confirmed after your intake application
+          </div>
         </div>
 
         {/* Credentials note */}
         <div style={{ background: '#f7f3ed', border: '1px solid #e8e4de', borderRadius: 12, padding: '11px 14px', marginBottom: 18, fontSize: 12, color: '#666', lineHeight: 1.6 }}>
-          <strong style={{ color: '#2a2a2a' }}>About Jess</strong> — MSc Biomedical Science. This is evidence-based wellness coaching, not medical treatment.
+          <strong style={{ color: '#2a2a2a' }}>About Jess</strong> — MSc Biomedical Sciences & Public Health, Rotterdam. Background in clinical science with a focus on lifestyle and preventive health. This is evidence-based wellness coaching, not medical treatment.
         </div>
 
         {alreadyApplied ? (
@@ -291,6 +295,7 @@ export default function TabCourses({ userId, toast }) {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {[
+            { emoji: '🌙', title: 'Cycle Syncing', body: 'Training, nutrition, and habit stacks aligned with your menstrual cycle phases.' },
             { emoji: '🍂', title: 'Preparing to Hibernate', body: 'An autumn reset — winding down, building resilience, preparing your body for winter.' },
             { emoji: '❄️', title: 'Holiday Season Special', body: 'Maintaining your foundations through the most disruptive time of year.' },
           ].map(c => (
