@@ -1766,6 +1766,7 @@ export default function Dashboard() {
               </div>
             )}
             <HabitsGrid/>
+            <div style={{marginTop:4}}><TabBadHabits onAdd={()=>setBadHabitOpen(true)} onToast={toast}/></div>
             <div style={{background:'#1a1a16',border:'1.5px solid rgba(255,255,255,0.06)',borderRadius:20,padding:20,color:'white'}}>
                 <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#444438',marginBottom:14}}>Quick Start</div>
                 <div style={{display:'flex',flexDirection:'column',gap:8}}>
