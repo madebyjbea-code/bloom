@@ -104,13 +104,11 @@ const GROUPS = {
     { key: 'science',  icon: '🔬', label: 'Science' },
   ],
   more: [
-    { key: 'nourish',   icon: '🥗', label: 'Nourish' },
+    { key: 'planner',   icon: '📅', label: 'Planner' },
     { key: 'community', icon: '👥', label: 'Community' },
+    { key: 'nourish',   icon: '🥗', label: 'Nourish' },
     { key: 'planet',    icon: '🌍', label: 'Planet' },
-    { key: 'planner',  icon: '📅', label: 'Planner' },
-    { key: 'roadmap',  icon: '🗺️', label: 'Roadmap' },
-    { key: 'about',    icon: 'ℹ️', label: 'About' },
-    { key: 'settings', icon: '⚙️', label: 'Settings' },
+    { key: 'roadmap',   icon: '🗺️', label: 'Roadmap' },
   ],
 };
 
@@ -626,6 +624,10 @@ export default function Dashboard() {
   const [habitIntroOpen, setHabitIntroOpen] = useState(false);
   const [badHabitOpen, setBadHabitOpen] = useState(false);
   const [modeEditorOpen, setModeEditorOpen] = useState(false);
+  const [backlogOpen, setBacklogOpen] = useState(false);
+  const [backlogDate, setBacklogDate] = useState(null);
+  const [backlogCompletions, setBacklogCompletions] = useState([]); // habit_keys completed on backlogDate
+  const [backlogLoading, setBacklogLoading] = useState(false);
 
   const [routine, setRoutine]   = useState(null);
   const [rStep, setRStep]       = useState(0);
@@ -1102,24 +1104,48 @@ export default function Dashboard() {
     }
   }
 
-  async function logLinkedGoalProgress(goal){
+  async function logLinkedGoalProgress(goal, isBacklog = false){
+    const today = new Date().toISOString().split('T')[0];
     const ok = await logGoalInstance(goal.id, userId);
     if(ok){
       setLinkedGoalWeekCounts(prev=>({...prev,[goal.id]:(prev[goal.id]||0)+1}));
-      setGoalsLoggedToday(prev=>{
-        const next = new Set(prev);
-        next.add(goal.id);
-        // Persist to localStorage so progress survives a page refresh
-        try {
-          const today = new Date().toISOString().split('T')[0];
-          const raw = JSON.parse(localStorage.getItem('bloom-goals-today') || '{}');
-          raw[today] = [...next];
-          // Only keep today's entry — auto-clears yesterday
-          localStorage.setItem('bloom-goals-today', JSON.stringify({[today]: raw[today]}));
-        } catch {}
-        return next;
-      });
-      toast(`✓ ${goal.name} logged`);
+      // Award coins + health unless this is a backlogged entry
+      if(!isBacklog){
+        // Find the habit to get its coin/GE value
+        const linkedHabit = allHabits.find(h => h.key === goal.linked_habit_key);
+        const coinReward = linkedHabit ? linkedHabit.coins : 10;
+        const geReward   = linkedHabit ? (linkedHabit.ge || 0) : 0;
+        const nc = coins + coinReward;
+        const ng = ge + geReward;
+        const habitCap = corePillarsCap(manualStats);
+        const nh = Math.min(habitCap, health + 3);
+        if(userId) await supabase.from('user_stats').update({coins:nc,green_energy:ng,health:nh}).eq('user_id',userId);
+        setStats({coins:nc,greenEnergy:ng,health:nh});
+        // Also insert a habit_completion so it shows in the planner
+        if(userId && goal.linked_habit_key){
+          await supabase.from('habit_completions')
+            .upsert({user_id:userId,habit_key:goal.linked_habit_key,date:today},{onConflict:'user_id,habit_key,date'});
+          loadWeeklyData();
+        }
+        setGoalsLoggedToday(prev=>{
+          const next = new Set(prev);
+          next.add(goal.id);
+          try {
+            const raw = JSON.parse(localStorage.getItem('bloom-goals-today') || '{}');
+            raw[today] = [...next];
+            localStorage.setItem('bloom-goals-today', JSON.stringify({[today]: raw[today]}));
+          } catch {}
+          return next;
+        });
+        toast(`✓ ${goal.name} logged · +${coinReward} 🪙${geReward>0?` +${geReward} ⚡`:''}`);
+      } else {
+        // Backlog: also insert habit_completion for past date but NO coins
+        if(userId && goal.linked_habit_key && goal._backlogDate){
+          await supabase.from('habit_completions')
+            .upsert({user_id:userId,habit_key:goal.linked_habit_key,date:goal._backlogDate},{onConflict:'user_id,habit_key,date'});
+        }
+        toast(`✓ ${goal.name} logged (no coins for backlogged entries)`);
+      }
     }
   }
 
@@ -1204,6 +1230,58 @@ export default function Dashboard() {
     await supabase.from('green_donations').insert({user_id:userId,organization:org,amount_ge:amt});
     await supabase.from('community_posts').insert({user_id:userId,user_name:name,user_avatar_emoji:avEmoji,post_type:'donation',content:`Donated ${amt} GE to ${org} 🌍`});
     setStats({greenEnergy:ng}); toast(`🌍 Donated ${amt} GE to ${org}!`); setDonateOpen(false);
+  }
+
+  async function openBacklog(dateStr){
+    setBacklogDate(dateStr);
+    setBacklogOpen(true);
+    setBacklogLoading(true);
+    try {
+      if(userId){
+        const {data} = await supabase.from('habit_completions').select('habit_key').eq('user_id',userId).eq('date',dateStr);
+        setBacklogCompletions(data?.map(c=>c.habit_key) || []);
+      } else {
+        const today = new Date().toISOString().split('T')[0];
+        setBacklogCompletions(dateStr===today ? [...done] : []);
+      }
+    } catch(e){ console.error(e); setBacklogCompletions([]); }
+    setBacklogLoading(false);
+  }
+
+  async function toggleBacklogHabit(h, dateStr){
+    const isD = backlogCompletions.includes(h.key);
+    const isToday = dateStr === new Date().toISOString().split('T')[0];
+    if(!isD){
+      if(userId) await supabase.from('habit_completions').upsert({user_id:userId,habit_key:h.key,date:dateStr},{onConflict:'user_id,habit_key,date'});
+      setBacklogCompletions(prev=>[...prev,h.key]);
+      if(isToday){
+        // Today's entry: award full coins + health
+        const nc=coins+h.coins, ng=ge+h.ge;
+        const habitCap=corePillarsCap(manualStats);
+        const nh=Math.min(habitCap,health+3);
+        if(userId) await supabase.from('user_stats').update({coins:nc,green_energy:ng,health:nh}).eq('user_id',userId);
+        setStats({coins:nc,greenEnergy:ng,health:nh});
+        await updateStreak(h.key, true);
+        toast(`✅ +${h.coins} 🪙${h.ge>0?` +${h.ge} ⚡`:''}`);
+      } else {
+        // Backlog: no coins
+        toast(`📅 ${h.name} added to ${dateStr} (no coins for backlogged entries)`);
+      }
+      loadWeeklyData();
+    } else {
+      if(userId) await supabase.from('habit_completions').delete().eq('user_id',userId).eq('habit_key',h.key).eq('date',dateStr);
+      setBacklogCompletions(prev=>prev.filter(k=>k!==h.key));
+      if(isToday){
+        const nc=Math.max(0,coins-h.coins),ng=Math.max(0,ge-h.ge),nh=Math.max(0,health-2);
+        if(userId) await supabase.from('user_stats').update({coins:nc,green_energy:ng,health:nh}).eq('user_id',userId);
+        setStats({coins:nc,greenEnergy:ng,health:nh});
+        await updateStreak(h.key, false);
+        toast('↩️ Habit unmarked');
+      } else {
+        toast(`📅 ${h.name} removed from ${dateStr}`);
+      }
+      loadWeeklyData();
+    }
   }
 
   async function submitRefl(){
@@ -1604,7 +1682,7 @@ export default function Dashboard() {
             {NAV.filter(n => !n.adminOnly || isAdmin).map(n=>{
               const active = tab===n.key || groupOf(tab)===n.key;
               const go = ()=>{
-                if(n.key==='more'){ setTab('nourish'); return; }
+                if(n.key==='more'){ setTab('planner'); return; }
                 if(n.key==='companion'){ setCompanionView('companion'); }
                 setTab(n.key);
               };
@@ -1779,15 +1857,22 @@ export default function Dashboard() {
                 </div>
               </div>
             <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20}}>
-              <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:12}}>
-                Week at a Glance · {sustainMode?'🌟 Sustain Mode':`Week ${week} of 4`}
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+                <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888'}}>
+                  Week at a Glance · {sustainMode?'🌟 Sustain Mode':`Week ${week} of 4`}
+                </div>
+                <div style={{fontSize:10,color:'#aaa'}}>Tap a past day to edit</div>
               </div>
               <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:6}}>
                 {wdays.map(d=>{
-                  const pct=d.totalHabits>0?Math.round((d.completedCount/d.totalHabits)*100):0;
                   const allDone=d.completedCount===d.totalHabits&&d.totalHabits>0;
+                  const isPast=!d.today&&new Date(d.dateStr+'T12:00:00')<new Date();
+                  const hasBacklog=isPast&&!allDone&&d.totalHabits>0;
                   return(
-                    <div key={d.num} style={{borderRadius:10,padding:'8px 4px',textAlign:'center',border:`1.5px solid ${d.today?'#8aad8a':allDone?'#b5ceb5':'#e8e4de'}`,background:d.today?'#f3f8f3':allDone?'#f8fcf8':'white',cursor:'pointer'}}>
+                    <div key={d.num}
+                      onClick={()=>{ if(isPast||d.today){ openBacklog(d.dateStr); } }}
+                      style={{borderRadius:10,padding:'8px 4px',textAlign:'center',border:`1.5px solid ${d.today?'#8aad8a':allDone?'#b5ceb5':hasBacklog?'#e8c890':'#e8e4de'}`,background:d.today?'#f3f8f3':allDone?'#f8fcf8':hasBacklog?'#fdf8f0':'white',cursor:(isPast||d.today)?'pointer':'default',position:'relative'}}>
+                      {hasBacklog&&<div style={{position:'absolute',top:3,right:4,width:5,height:5,borderRadius:'50%',background:'#e8a84a'}}/>}
                       <div style={{fontSize:9,color:'#888',textTransform:'uppercase',letterSpacing:'0.5px'}}>{d.n}</div>
                       <div style={{fontWeight:600,fontSize:13,marginTop:2,marginBottom:4,color:d.today?'#5a7a5a':allDone?'#8aad8a':'#2a2a2a'}}>{d.num}</div>
                       <div style={{display:'flex',justifyContent:'center',alignItems:'center',gap:2,flexWrap:'wrap'}}>
@@ -1798,6 +1883,13 @@ export default function Dashboard() {
                   );
                 })}
               </div>
+              {/* Backlog legend */}
+              {wdays.some(d=>{ const isPast=!d.today&&new Date(d.dateStr+'T12:00:00')<new Date(); return isPast&&!( d.completedCount===d.totalHabits&&d.totalHabits>0)&&d.totalHabits>0; })&&(
+                <div style={{marginTop:10,display:'flex',alignItems:'center',gap:6,fontSize:10,color:'#c4880a'}}>
+                  <div style={{width:5,height:5,borderRadius:'50%',background:'#e8a84a',flexShrink:0}}/>
+                  Days with incomplete habits — tap to fill in the backlog (no coins for backlogged entries)
+                </div>
+              )}
             </div>
             {userId === ADMIN_USER_ID && <DashboardPostCard/>}
           </div>
@@ -1824,7 +1916,7 @@ export default function Dashboard() {
           ) : (
             <div style={{textAlign:'center',color:'#666'}}>
               <div style={{fontSize:32,marginBottom:8}}>🎬</div>
-              <div style={{fontSize:13}}>A walkthrough video goes here</div>
+              <div style={{fontSize:13}}>Walkthrough video coming soon</div>
             </div>
           )}
         </div>
@@ -2057,9 +2149,24 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:18}}>
-                  <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888',marginBottom:12}}>Habits completed ({dayStats.completed.length})</div>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+                    <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888'}}>Habits completed ({dayStats.completed.length})</div>
+                    {selectedDay !== new Date().toISOString().split('T')[0] && (
+                      <button onClick={()=>openBacklog(selectedDay)}
+                        style={{fontSize:10,fontWeight:600,color:'#5a7a5a',background:'#f3f8f3',border:'1px solid #b5ceb5',borderRadius:99,padding:'4px 10px',cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
+                        ✏️ Edit
+                      </button>
+                    )}
+                  </div>
                   {dayStats.completed.length===0?(
-                    <div style={{fontSize:13,color:'#bbb',textAlign:'center',padding:'12px 0'}}>No habits recorded</div>
+                    <div style={{textAlign:'center',padding:'12px 0'}}>
+                      <div style={{fontSize:13,color:'#bbb',marginBottom:8}}>No habits recorded</div>
+                      {selectedDay !== new Date().toISOString().split('T')[0] && (
+                        <button onClick={()=>openBacklog(selectedDay)} style={{fontSize:12,color:'#5a7a5a',background:'#f3f8f3',border:'1px solid #b5ceb5',borderRadius:99,padding:'6px 14px',cursor:'pointer',fontFamily:'DM Sans,sans-serif',fontWeight:600}}>
+                          📅 Fill in backlog
+                        </button>
+                      )}
+                    </div>
                   ):(
                     <div style={{display:'flex',flexDirection:'column',gap:7}}>
                       {dayStats.completed.map(h=>(
@@ -2144,6 +2251,7 @@ export default function Dashboard() {
   );
 
   const TabSettings=()=>{
+    const [settingsSubTab, setSettingsSubTab] = useState('profile');
     const setUser = useStore(s=>s.setUser);
     const SKIN_OPTIONS = [{v:'eeb4a4',l:'Light'},{v:'e5a07e',l:'Light Brown'},{v:'d78774',l:'Brown'},{v:'b16a5b',l:'Medium'},{v:'92594b',l:'Deep Brown'},{v:'623d36',l:'Deep'}];
     const HAIR_OPTIONS = [{v:'long',l:'Long'},{v:'extraLong',l:'Extra Long'},{v:'bobCut',l:'Bob'},{v:'bobBangs',l:'Bob Bangs'},{v:'curly',l:'Curly'},{v:'curlyBun',l:'Curly Bun'},{v:'pigtails',l:'Pigtails'},{v:'straightBun',l:'Straight Bun'},{v:'shortCombover',l:'Short'},{v:'buzzcut',l:'Buzzcut'},{v:'fade',l:'Fade'},{v:'bald',l:'Bald'}];
@@ -2180,8 +2288,32 @@ export default function Dashboard() {
       );
     }
 
+    const settingsTabs = [
+      {key:'profile', label:'Profile'},
+      {key:'about',   label:'About'},
+      ...(isAdmin ? [{key:'analytics', label:'Analytics 📊'}] : []),
+    ];
+
     return(
       <div style={{padding:'22px 26px',maxWidth:680}}>
+        {/* Settings sub-tabs */}
+        <div style={{display:'flex',gap:6,marginBottom:20,flexWrap:'wrap'}}>
+          {settingsTabs.map(t=>(
+            <button key={t.key} onClick={()=>setSettingsSubTab(t.key)}
+              style={{padding:'7px 16px',borderRadius:99,border:`1.5px solid ${settingsSubTab===t.key?'#8aad8a':'#e8e4de'}`,background:settingsSubTab===t.key?'#f3f8f3':'white',color:settingsSubTab===t.key?'#3a6a3a':'#888',cursor:'pointer',fontFamily:'DM Sans,sans-serif',fontSize:13,fontWeight:600,transition:'all 0.2s'}}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Analytics sub-tab */}
+        {settingsSubTab==='analytics' && isAdmin && <QuizAnalytics/>}
+
+        {/* About sub-tab */}
+        {settingsSubTab==='about' && <TabAbout/>}
+
+        {/* Profile sub-tab */}
+        {settingsSubTab==='profile' && <>
         <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:24,padding:26,display:'flex',gap:18,alignItems:'center',marginBottom:16,flexWrap:'wrap'}}>
           <div style={{width:64,height:64,borderRadius:'50%',background:'linear-gradient(135deg,#c8ddc8,#a8c4a8)',overflow:'hidden',border:'3px solid rgba(255,255,255,0.7)',flexShrink:0}}>
             <object type="image/svg+xml" data={dicebearUrl} style={{width:'100%',height:'100%',pointerEvents:'none'}}><span>🧑‍🌿</span></object>
@@ -2305,6 +2437,7 @@ export default function Dashboard() {
           onMouseOut={e=>{e.currentTarget.style.borderColor='#e8e4de';e.currentTarget.style.color='#888';}}>
           Sign out
         </button>
+        </>}
       </div>
     );
   };
@@ -2430,8 +2563,6 @@ export default function Dashboard() {
     companion:{t:'Your Companion 🌸',s:'Tend to your companion · feed · decorate'},
     courses:{t:'Courses & Coaching 📚',s:'Living Well · 1:1 sessions · what\'s coming'},
     roadmap:{t:'Roadmap 🗺️',s:"Vote for features · suggest ideas · see what's coming"},
-    about:{t:'About Bloom ℹ️',s:'How the app works, and why'},
-    analytics:{t:'Quiz Analytics 📊',s:'Conversion funnel & drop-off analysis'},
   };
   const cur=titles[tab]||titles.dashboard;
 
@@ -2440,7 +2571,6 @@ export default function Dashboard() {
     const g=groupOf(tab);
     if(!g) return null;
     let items=GROUPS[g];
-    if(g==='more' && isAdmin) items=[...items,{key:'analytics',icon:'📊',label:'Analytics'}];
     return(
       <div style={{display:'flex',gap:6,overflowX:'auto',padding:'12px 26px 0'}}>
         {items.map(it=>(
@@ -2473,10 +2603,50 @@ export default function Dashboard() {
           {tab==='settings'   && <TabSettings/>}
           {tab==='courses'    && <TabCourses userId={userId} toast={toast}/>}
           {tab==='roadmap'    && <TabRoadmap onFeedback={()=>setFeedbackOpen(true)}/>}
-          {tab==='about'      && <TabAbout/>}
-          {tab==='analytics'  && isAdmin && <QuizAnalytics/>}
+
         </div>
       </div>
+      {backlogOpen && (
+        <div onClick={()=>setBacklogOpen(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:24,padding:26,width:520,maxWidth:'95vw',maxHeight:'85vh',overflowY:'auto'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+              <div>
+                <h2 style={{fontFamily:'Instrument Serif,serif',fontSize:22,marginBottom:2}}>
+                  {backlogDate && new Date(backlogDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}
+                </h2>
+                {backlogDate && backlogDate !== new Date().toISOString().split('T')[0] && (
+                  <div style={{fontSize:11,color:'#c4880a'}}>🕐 Backlog mode — no coins awarded for past entries</div>
+                )}
+              </div>
+              <button onClick={()=>setBacklogOpen(false)} style={{width:30,height:30,borderRadius:'50%',border:'1.5px solid #e8e4de',background:'transparent',cursor:'pointer',fontSize:15}}>✕</button>
+            </div>
+            {backlogLoading ? (
+              <div style={{textAlign:'center',padding:'30px 0',color:'#888'}}>⏳ Loading...</div>
+            ) : (
+              <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                {allHabits.map(h=>{
+                  const isDone = backlogCompletions.includes(h.key);
+                  return(
+                    <div key={h.key} onClick={()=>toggleBacklogHabit(h,backlogDate)}
+                      style={{display:'flex',alignItems:'center',gap:12,padding:'11px 14px',borderRadius:13,border:`1.5px solid ${isDone?'#8aad8a':'#e8e4de'}`,background:isDone?'#f3f8f3':'white',cursor:'pointer',transition:'all 0.15s'}}>
+                      <div style={{width:22,height:22,borderRadius:'50%',border:`2px solid ${isDone?'#8aad8a':'#e8e4de'}`,background:isDone?'#8aad8a':'white',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:'white',flexShrink:0,fontWeight:700}}>{isDone?'✓':''}</div>
+                      <span style={{fontSize:20,flexShrink:0}}>{h.emoji}</span>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:13,fontWeight:500}}>{h.name}</div>
+                        <div style={{fontSize:10,color:'#aaa'}}>
+                          {backlogDate === new Date().toISOString().split('T')[0]
+                            ? <span style={{color:'#d4af6a',fontWeight:600}}>+{h.coins} 🪙</span>
+                            : <span style={{color:'#bbb'}}>no coins (backlog)</span>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {badHabitOpen  && <BadHabitModal onClose={()=>setBadHabitOpen(false)}/>}
       {shopOpen      && <ShopModal/>}
       {donateOpen    && <DonateModal/>}

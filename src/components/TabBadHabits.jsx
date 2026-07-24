@@ -21,6 +21,8 @@ export default function TabBadHabits({ onAdd, onToast }) {
   const [history, setHistory] = useState({}); // { 'YYYY-MM-DD': { habitKey: log } }
   const [quantInputs, setQuantInputs] = useState({}); // local input state per habit
   const [confirmRest, setConfirmRest] = useState(false);
+  const [badHabitGoals, setBadHabitGoals] = useState({}); // { habitKey: { type, target, setAt } }
+  const [goalEditing, setGoalEditing] = useState(null); // habitKey being edited
 
   const today = new Date().toISOString().split('T')[0];
   const REST_DAYS_PER_WEEK = 2;
@@ -29,7 +31,42 @@ export default function TabBadHabits({ onAdd, onToast }) {
     if (!userId) return;
     loadHistory();
     loadTodayLogs();
+    // Load bad habit goals from localStorage
+    try {
+      const saved = JSON.parse(localStorage.getItem('bloom-bad-habit-goals') || '{}');
+      setBadHabitGoals(saved);
+    } catch {}
   }, [userId, badHabits.length]);
+
+  function saveBadHabitGoal(habitKey, goal) {
+    const updated = { ...badHabitGoals, [habitKey]: goal };
+    setBadHabitGoals(updated);
+    localStorage.setItem('bloom-bad-habit-goals', JSON.stringify(updated));
+    setGoalEditing(null);
+    onToast?.(`🎯 Goal set for ${badHabits.find(h=>h.key===habitKey)?.name}`);
+  }
+
+  function clearBadHabitGoal(habitKey) {
+    const updated = { ...badHabitGoals };
+    delete updated[habitKey];
+    setBadHabitGoals(updated);
+    localStorage.setItem('bloom-bad-habit-goals', JSON.stringify(updated));
+    onToast?.('Goal removed');
+  }
+
+  function getBadDayCount(habitKey) {
+    // Count consecutive days without a slip (did_it === false or amount <= threshold)
+    let count = 0;
+    for (let i = 0; i <= 30; i++) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      const dayLog = history[dateStr]?.[habitKey];
+      if (!dayLog) { if (i === 0) continue; else break; } // today not logged yet: skip
+      if (dayLog.failed) break;
+      count++;
+    }
+    return count;
+  }
 
   async function loadHistory() {
     const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -335,6 +372,91 @@ export default function TabBadHabits({ onAdd, onToast }) {
                     );
                   })}
                 </div>
+
+                {/* Bad habit goal */}
+                {(() => {
+                  const goal = badHabitGoals[h.key];
+                  const daysClean = getBadDayCount(h.key);
+                  const isEditing = goalEditing === h.key;
+                  if (isEditing) {
+                    return (
+                      <div style={{ marginTop: 12, padding: '12px', background: '#f7f3ed', borderRadius: 10, border: '1px solid #e8d9c4' }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: '#7a5a3a', marginBottom: 8 }}>Set a goal</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {h.type === 'binary' && (
+                            <div>
+                              <div style={{ fontSize: 11, color: '#888', marginBottom: 5 }}>Go N days without</div>
+                              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                                {[3, 5, 7, 14, 30].map(n => (
+                                  <button key={n} onClick={() => saveBadHabitGoal(h.key, { type: 'days_free', target: n, setAt: today })}
+                                    style={{ padding: '5px 12px', borderRadius: 99, border: '1.5px solid #d4af6a', background: 'white', color: '#9a7a2a', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
+                                    {n} days
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {h.type === 'quantitative' && (() => {
+                            const isScreenTime = h.key === 'screen_time' || (h.unit || '').toLowerCase().includes('hour') || (h.unit || '').toLowerCase().includes('hr');
+                            const options = isScreenTime ? [1, 2, 3, 4, 5, 6] : [1, 2, 3, 5, 7];
+                            const periodLabel = isScreenTime ? 'hours/day' : `${h.unit || 'times'}/week`;
+                            return (
+                              <div>
+                                <div style={{ fontSize: 11, color: '#888', marginBottom: 5 }}>Reduce to N {periodLabel}</div>
+                                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                                  {options.map(n => (
+                                    <button key={n} onClick={() => saveBadHabitGoal(h.key, { type: isScreenTime ? 'reduce_daily' : 'reduce_weekly', target: n, unit: periodLabel, setAt: today })}
+                                      style={{ padding: '5px 12px', borderRadius: 99, border: '1.5px solid #d4af6a', background: 'white', color: '#9a7a2a', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
+                                      {n}{isScreenTime ? 'h' : 'x'}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })()}
+                          <button onClick={() => setGoalEditing(null)}
+                            style={{ marginTop: 4, fontSize: 11, color: '#aaa', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'DM Sans,sans-serif' }}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+                  if (goal) {
+                    const progress = goal.type === 'days_free'
+                      ? Math.min(100, Math.round((daysClean / goal.target) * 100))
+                      : null;
+                    return (
+                      <div style={{ marginTop: 12, padding: '10px 12px', background: '#f0f7f0', borderRadius: 10, border: '1px solid #b5ceb5' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: goal.type === 'days_free' ? 6 : 0 }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: '#3a6a3a' }}>
+                            🎯 {goal.type === 'days_free'
+                              ? `${daysClean}/${goal.target} days free`
+                              : `Goal: ≤${goal.target} ${goal.unit || h.unit + '/week'}`}
+                          </div>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button onClick={() => setGoalEditing(h.key)}
+                              style={{ fontSize: 10, color: '#888', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>✏️</button>
+                            <button onClick={() => clearBadHabitGoal(h.key)}
+                              style={{ fontSize: 10, color: '#aaa', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>✕</button>
+                          </div>
+                        </div>
+                        {goal.type === 'days_free' && (
+                          <div style={{ height: 5, background: '#d4ebd4', borderRadius: 99, overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${progress}%`, background: progress >= 100 ? '#5a7a5a' : '#8aad8a', borderRadius: 99, transition: 'width 0.5s' }} />
+                          </div>
+                        )}
+                        {progress >= 100 && <div style={{ fontSize: 10, color: '#5a7a5a', fontWeight: 600, marginTop: 4 }}>🏆 Goal reached!</div>}
+                      </div>
+                    );
+                  }
+                  return (
+                    <button onClick={() => setGoalEditing(h.key)}
+                      style={{ marginTop: 10, width: '100%', padding: '7px', background: 'transparent', border: '1px dashed #e8d9c4', borderRadius: 8, fontSize: 11, color: '#aaa', cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
+                      🎯 Set a goal
+                    </button>
+                  );
+                })()}
               </div>
             );
           })}
