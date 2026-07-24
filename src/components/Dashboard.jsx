@@ -20,6 +20,9 @@ import TabRoutinesEnhanced from './TabRoutines';
 import TabNourish from './TabNourish';
 import TabCompanion from './TabCompanion';
 import EnergyModeModal, { ModeEditor } from './EnergyModeModal';
+import SleepLogModal from './SleepLogModal';
+import WeeklyReflectionModal from './WeeklyReflectionModal';
+import { shouldTriggerReflection, getWeekStartStr } from '../lib/weeklyReflection';
 
 const ROUTINES = {
   morning: {
@@ -257,10 +260,9 @@ const STAT_GOALS = {
   movement:    { icon:'🏃', label:'Movement', reward:1, type:'add', min:0, exact:true,
                  increments:[{amt:10,label:'+10 min'},{amt:30,label:'+30 min'}],
                  fmt:(v)=>`${v} min`, hit:PILLAR_THRESHOLDS.movement.hit, goalText:'15 min' },
-  sleep:       { icon:'😴', label:'Sleep', reward:2, type:'stepper', min:0, max:14, step:0.5,
-                 fmt:(v)=>`${trimNum(v)}h`, hit:PILLAR_THRESHOLDS.sleep.hit, goalText:'6–9h' },
+  // Sleep logged via sleep card on Home (SleepLogModal) — not in this modal
 };
-const STAT_ORDER = ['water','mindfulness','movement','sleep'];
+const STAT_ORDER = ['water','mindfulness','movement'];
 function trimNum(n){ return Number.isInteger(Number(n)) ? String(Number(n)) : String(Number(Number(n).toFixed(2))); }
 
 const PILL = {
@@ -282,6 +284,12 @@ function StatsLogModal({ manualStats, setManualStats, awardStatHealth, setStatsL
     const afterAward = await awardStatHealth(updated);
     setManualStats(afterAward);
     localStorage.setItem('bloom-daily-stats', JSON.stringify(afterAward));
+    // Also write to date-keyed log so weekly reflection can read history
+    try {
+      const log = JSON.parse(localStorage.getItem('bloom-daily-stats-log') || '{}');
+      log[today] = { water: afterAward.water, mindfulness: afterAward.mindfulness, movement: afterAward.movement, sleep: afterAward.sleep };
+      localStorage.setItem('bloom-daily-stats-log', JSON.stringify(log));
+    } catch {}
   }
 
   return (
@@ -299,7 +307,6 @@ function StatsLogModal({ manualStats, setManualStats, awardStatHealth, setStatsL
               {icon:'💧',label:'2.5L water',      k:'water'},
               {icon:'🧘',label:'10 min mindful',  k:'mindfulness'},
               {icon:'🏃',label:'15 min movement', k:'movement'},
-              {icon:'😴',label:'6+ hours sleep',  k:'sleep'},
             ].map(({icon,label,k})=>{
               const met = PILLAR_THRESHOLDS[k].hit(Number(manualStats[k]||0));
               return (
@@ -311,6 +318,12 @@ function StatsLogModal({ manualStats, setManualStats, awardStatHealth, setStatsL
                 </div>
               );
             })}
+            {(()=>{ const met = PILLAR_THRESHOLDS.sleep.hit(Number(manualStats.sleep||0)); return (
+              <div style={{display:'flex',alignItems:'center',gap:7,fontSize:12,color:met?'#3a6a3a':'#888'}}>
+                <div style={{width:18,height:18,borderRadius:'50%',background:met?'#8aad8a':'#e8e4de',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'white',flexShrink:0,fontWeight:700}}>{met?'✓':''}</div>
+                <span style={{fontWeight:met?600:400}}>😴 6+ hours — log via sleep card</span>
+              </div>
+            ); })()}
           </div>
           <div style={{fontSize:11,color:'#7a9a7a',marginTop:10,paddingTop:8,borderTop:'1px solid #c5ddc5'}}>
             + always −5% health if no meals logged in Nourish today
@@ -629,6 +642,12 @@ export default function Dashboard() {
   const [backlogCompletions, setBacklogCompletions] = useState([]); // habit_keys completed on backlogDate
   const [backlogLoading, setBacklogLoading] = useState(false);
   const [backlogBadLogs, setBacklogBadLogs] = useState({}); // { habitKey: { did_it, amount, failed } } for backlogDate
+  const [sleepLogOpen, setSleepLogOpen] = useState(false);
+  const [sleepEditEntry, setSleepEditEntry] = useState(null);
+  const [todaySleep, setTodaySleep] = useState(null); // latest sleep_logs entry for display
+  const [weekSleepEntries, setWeekSleepEntries] = useState([]);
+  const [weeklyReflOpen, setWeeklyReflOpen] = useState(false);
+  const [reflScheduleSetup, setReflScheduleSetup] = useState(false); // show schedule picker first
 
   const [routine, setRoutine]   = useState(null);
   const [rStep, setRStep]       = useState(0);
@@ -823,7 +842,7 @@ export default function Dashboard() {
       : `${labels.length} goals reached · +${gained} health ❤️`);
     // If they just hit 99 with all habits done, nudge them to log pillars
     if (cap <= 90) {
-      setTimeout(() => toast('💡 Hit 2.5L water · 10 min mindfulness · 15 min movement · 6h sleep to unlock health above 90%'), 2500);
+      setTimeout(() => toast('💡 Hit 2.5L water · 10 min mindfulness · 15 min movement to unlock health above 90%'), 2500);
     } else if (cap === 95) {
       setTimeout(() => toast('🍽️ Log a meal in Nourish to reach 100% health'), 2500);
     }
@@ -929,6 +948,46 @@ export default function Dashboard() {
       const today=new Date().toISOString().split('T')[0];
       const {data:c}=await supabase.from('habit_completions').select('habit_key').eq('user_id',userId).eq('date',today);
       if(c) c.forEach(x=>{ if(!done.includes(x.habit_key)) toggleH(x.habit_key); });
+
+      // ── Load today's sleep entry ──────────────────────────
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const { data: sleepRows } = await supabase
+          .from('sleep_logs')
+          .select('*')
+          .eq('user_id', userId)
+          .gte('logged_at', today)
+          .order('logged_at', { ascending: false })
+          .limit(1);
+        if (sleepRows?.[0]) setTodaySleep(sleepRows[0]);
+
+        // Load this week's sleep entries for the card sparkline
+        const ws = getWeekStartStr();
+        const { data: weekSleep } = await supabase
+          .from('sleep_logs')
+          .select('bedtime, wake_time, quality_score, logged_at')
+          .eq('user_id', userId)
+          .gte('logged_at', ws)
+          .order('logged_at', { ascending: true });
+        if (weekSleep) setWeekSleepEntries(weekSleep);
+      } catch {}
+
+      // ── Reflection trigger ─────────────────────────────────
+      try {
+        const scheduleRaw = localStorage.getItem('bloom-reflection-schedule');
+        if (!scheduleRaw) {
+          // First time — check if setup needed
+          const lastWeek = localStorage.getItem('bloom-last-reflection-week');
+          if (!lastWeek) setReflScheduleSetup(true); // will open modal with setup screen
+        } else {
+          const { day, time } = JSON.parse(scheduleRaw);
+          const lastWeek = localStorage.getItem('bloom-last-reflection-week');
+          if (shouldTriggerReflection(day, time, lastWeek)) {
+            setWeeklyReflOpen(true);
+          }
+        }
+      } catch {}
+
       setLoading(false);
     } catch(e){ console.error(e); setLoading(false); }
   }
@@ -1850,8 +1909,51 @@ export default function Dashboard() {
           <div style={{display:'flex',flexDirection:'column',gap:16}}><CompanionTile/></div>
           <div style={{display:'flex',flexDirection:'column',gap:16}}>
             <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}} className="stats-row">
+              {/* Sleep card — richer than the other pillars */}
+              <div
+                onClick={()=>{ setSleepEditEntry(todaySleep||null); setSleepLogOpen(true); }}
+                style={{background:'white',border:`1.5px solid ${todaySleep?'#8a7a9e':'#e8e4de'}`,borderRadius:16,padding:16,cursor:'pointer',transition:'all 0.2s',gridColumn:'span 1'}}
+                onMouseOver={e=>e.currentTarget.style.borderColor='#8a7a9e'}
+                onMouseOut={e=>e.currentTarget.style.borderColor=todaySleep?'#8a7a9e':'#e8e4de'}
+              >
+                <div style={{fontSize:18,marginBottom:4}}>😴</div>
+                {todaySleep ? (
+                  <>
+                    <div style={{fontFamily:'Syne,sans-serif',fontSize:16,fontWeight:700,color:'#8a7a9e'}}>
+                      {(()=>{
+                        const bed=new Date(todaySleep.bedtime);
+                        const wake=new Date(todaySleep.wake_time);
+                        const h=Math.floor((wake-bed)/3600000);
+                        const m=Math.round(((wake-bed)%3600000)/60000);
+                        return m?`${h}h ${m}m`:`${h}h`;
+                      })()}
+                    </div>
+                    <div style={{fontSize:10,color:'#8a7a9e',fontWeight:600,marginTop:1}}>
+                      ⭐ {todaySleep.quality_score}/10
+                    </div>
+                    <div style={{fontSize:10,color:'#aaa',marginTop:2}}>
+                      {(()=>{
+                        const bed=new Date(todaySleep.bedtime);
+                        const h=bed.getHours(),m=bed.getMinutes();
+                        return `${h>12?h-12:h||12}:${String(m).padStart(2,'0')}${h>=12?'pm':'am'}`;
+                      })()} → {(()=>{
+                        const wake=new Date(todaySleep.wake_time);
+                        const h=wake.getHours(),m=wake.getMinutes();
+                        return `${h>12?h-12:h||12}:${String(m).padStart(2,'0')}${h>=12?'pm':'am'}`;
+                      })()}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{fontFamily:'Syne,sans-serif',fontSize:19,fontWeight:700,color:'#ccc'}}>—</div>
+                    <div style={{fontSize:11,color:'#888',marginTop:1}}>Sleep</div>
+                    <div style={{fontSize:10,color:'#aaa',marginTop:3}}>tap to log</div>
+                  </>
+                )}
+              </div>
+
+              {/* Other 3 pillars unchanged */}
               {[
-                {icon:'😴',v:manualStats.sleep||'—',l:'Sleep',key:'sleep'},
                 {icon:'🧘',v:manualStats.mindfulness?`${manualStats.mindfulness}min`:'—',l:'Mindfulness',key:'mindfulness'},
                 {icon:'🏃',v:manualStats.movement?`${manualStats.movement} min`:'—',l:'Movement',key:'movement'},
                 {icon:'💧',v:manualStats.water?`${manualStats.water}L`:'—',l:'Hydration',key:'water'},
@@ -1865,6 +1967,24 @@ export default function Dashboard() {
                   <div style={{fontSize:10,color:'#aaa',marginTop:3}}>{x.v==='—'?'tap to log':'logged'}</div>
                 </div>
               ))}
+            </div>
+
+            {/* Weekly reflection button + admin test override */}
+            <div style={{display:'flex',gap:8,alignItems:'center'}}>
+              <button
+                onClick={()=>{ setReflScheduleSetup(false); setWeeklyReflOpen(true); }}
+                style={{display:'flex',alignItems:'center',gap:8,padding:'10px 16px',background:'linear-gradient(135deg,#f3f8f3,#f7f3ed)',border:'1.5px solid #b5ceb5',borderRadius:99,cursor:'pointer',fontSize:13,fontWeight:600,color:'#3a6a3a',fontFamily:'DM Sans,sans-serif'}}
+              >
+                ✨ This week&apos;s reflection
+              </button>
+              {isAdmin && (
+                <button
+                  onClick={()=>{ setReflScheduleSetup(false); setWeeklyReflOpen(true); }}
+                  style={{padding:'8px 12px',background:'#f0f0e8',border:'1px solid #ddd',borderRadius:99,cursor:'pointer',fontSize:11,color:'#888',fontFamily:'DM Sans,sans-serif'}}
+                >
+                  🧪 Test
+                </button>
+              )}
             </div>
             {suggestedHabits.length > 0 && (
               <div style={{background:'linear-gradient(135deg,#f3f8f3,#f7f3ed)',border:'1.5px solid #b5ceb5',borderRadius:20,padding:20}}>
@@ -2741,6 +2861,45 @@ export default function Dashboard() {
         </div>
       )}
       {badHabitOpen  && <BadHabitModal onClose={()=>setBadHabitOpen(false)}/>}
+      {sleepLogOpen  && (
+        <SleepLogModal
+          existingEntry={sleepEditEntry}
+          onClose={()=>{ setSleepLogOpen(false); setSleepEditEntry(null); }}
+          onSaved={async()=>{
+            try {
+              const today = new Date().toISOString().split('T')[0];
+              const { data: rows } = await supabase.from('sleep_logs').select('*').eq('user_id',userId).gte('logged_at',today).order('logged_at',{ascending:false}).limit(1);
+              if(rows?.[0]){
+                setTodaySleep(rows[0]);
+                // Award sleep health reward (+2 if >=6h, matching old stepper)
+                const durationH = rows[0].duration_minutes / 60;
+                const sleepStats = { ...manualStats, sleep: durationH };
+                const afterAward = await awardStatHealth(sleepStats);
+                // Persist sleep into daily stats log for weekly reflection
+                try {
+                  const log = JSON.parse(localStorage.getItem('bloom-daily-stats-log') || '{}');
+                  log[today] = { ...(log[today]||{}), sleep: durationH };
+                  localStorage.setItem('bloom-daily-stats-log', JSON.stringify(log));
+                } catch {}
+                setManualStats(afterAward);
+                localStorage.setItem('bloom-daily-stats', JSON.stringify(afterAward));
+              }
+              const ws = getWeekStartStr();
+              const { data: week } = await supabase.from('sleep_logs').select('bedtime,wake_time,quality_score,logged_at').eq('user_id',userId).gte('logged_at',ws).order('logged_at',{ascending:true});
+              if(week) setWeekSleepEntries(week);
+            } catch {}
+            toast('😴 Sleep logged!');
+          }}
+        />
+      )}
+      {weeklyReflOpen && (
+        <WeeklyReflectionModal
+          showScheduleSetup={reflScheduleSetup}
+          manualStats={manualStats}
+          onClose={()=>{ setWeeklyReflOpen(false); setReflScheduleSetup(false); }}
+          onSaved={()=>toast('✨ Reflection saved — great work this week!')}
+        />
+      )}
       {shopOpen      && <ShopModal/>}
       {donateOpen    && <DonateModal/>}
       {reflOpen      && <ReflModal week={week} refl={refl} setRefl={setRefl} submitRefl={submitRefl}/>}
