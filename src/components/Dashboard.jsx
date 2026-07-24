@@ -628,6 +628,7 @@ export default function Dashboard() {
   const [backlogDate, setBacklogDate] = useState(null);
   const [backlogCompletions, setBacklogCompletions] = useState([]); // habit_keys completed on backlogDate
   const [backlogLoading, setBacklogLoading] = useState(false);
+  const [backlogBadLogs, setBacklogBadLogs] = useState({}); // { habitKey: { did_it, amount, failed } } for backlogDate
 
   const [routine, setRoutine]   = useState(null);
   const [rStep, setRStep]       = useState(0);
@@ -670,6 +671,7 @@ export default function Dashboard() {
   const avatarScene     = useStore(s=>s.avatarScene);
   const setAvatarScene  = useStore(s=>s.setAvatarScene);
   const isRestDayToday  = useStore(s=>s.isRestDayToday);
+  const badHabits       = useStore(s=>s.badHabits);
 
   const isAdmin = userId === ADMIN_USER_ID;
 
@@ -1236,16 +1238,51 @@ export default function Dashboard() {
     setBacklogDate(dateStr);
     setBacklogOpen(true);
     setBacklogLoading(true);
+    setBacklogBadLogs({});
     try {
       if(userId){
-        const {data} = await supabase.from('habit_completions').select('habit_key').eq('user_id',userId).eq('date',dateStr);
-        setBacklogCompletions(data?.map(c=>c.habit_key) || []);
+        const [{data:hc},{data:bhl}] = await Promise.all([
+          supabase.from('habit_completions').select('habit_key').eq('user_id',userId).eq('date',dateStr),
+          supabase.from('bad_habit_logs').select('*').eq('user_id',userId).eq('date',dateStr),
+        ]);
+        setBacklogCompletions(hc?.map(c=>c.habit_key) || []);
+        const badMap = {};
+        (bhl||[]).forEach(r=>{ badMap[r.bad_habit_key]={did_it:r.did_it,amount:r.amount,failed:r.failed}; });
+        setBacklogBadLogs(badMap);
       } else {
         const today = new Date().toISOString().split('T')[0];
         setBacklogCompletions(dateStr===today ? [...done] : []);
       }
     } catch(e){ console.error(e); setBacklogCompletions([]); }
     setBacklogLoading(false);
+  }
+
+  async function toggleBacklogBadHabit(h, val, dateStr){
+    // Always no health penalty for backlogged bad habit entries
+    const entry = backlogBadLogs[h.key];
+    let newLog;
+    if(h.type === 'binary'){
+      const didIt = val; // true = did it, false = didn't
+      newLog = { did_it: didIt, amount: null, failed: didIt };
+    } else {
+      const num = Number(val);
+      newLog = { did_it: null, amount: num, failed: num > (h.threshold ?? 0) };
+    }
+    // If clicking same binary value again, remove the log
+    if(h.type === 'binary' && entry?.did_it === val){
+      setBacklogBadLogs(prev=>{ const n={...prev}; delete n[h.key]; return n; });
+      if(userId) await supabase.from('bad_habit_logs').delete().eq('user_id',userId).eq('bad_habit_key',h.key).eq('date',dateStr);
+      toast(`↩️ ${h.name} removed from ${dateStr}`);
+      return;
+    }
+    setBacklogBadLogs(prev=>({...prev,[h.key]:newLog}));
+    if(userId){
+      await supabase.from('bad_habit_logs').upsert(
+        {user_id:userId,bad_habit_key:h.key,date:dateStr,did_it:newLog.did_it,amount:newLog.amount,failed:newLog.failed},
+        {onConflict:'user_id,bad_habit_key,date'}
+      );
+    }
+    toast(`📅 ${h.name} logged for ${dateStr} (no health penalty for backlog)`);
   }
 
   async function toggleBacklogHabit(h, dateStr){
@@ -1916,7 +1953,7 @@ export default function Dashboard() {
           ) : (
             <div style={{textAlign:'center',color:'#666'}}>
               <div style={{fontSize:32,marginBottom:8}}>🎬</div>
-              <div style={{fontSize:13}}>Walkthrough video coming soon</div>
+              <div style={{fontSize:13}}>A walkthrough video goes here</div>
             </div>
           )}
         </div>
@@ -2623,26 +2660,82 @@ export default function Dashboard() {
             {backlogLoading ? (
               <div style={{textAlign:'center',padding:'30px 0',color:'#888'}}>⏳ Loading...</div>
             ) : (
-              <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                {allHabits.map(h=>{
-                  const isDone = backlogCompletions.includes(h.key);
-                  return(
-                    <div key={h.key} onClick={()=>toggleBacklogHabit(h,backlogDate)}
-                      style={{display:'flex',alignItems:'center',gap:12,padding:'11px 14px',borderRadius:13,border:`1.5px solid ${isDone?'#8aad8a':'#e8e4de'}`,background:isDone?'#f3f8f3':'white',cursor:'pointer',transition:'all 0.15s'}}>
-                      <div style={{width:22,height:22,borderRadius:'50%',border:`2px solid ${isDone?'#8aad8a':'#e8e4de'}`,background:isDone?'#8aad8a':'white',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:'white',flexShrink:0,fontWeight:700}}>{isDone?'✓':''}</div>
-                      <span style={{fontSize:20,flexShrink:0}}>{h.emoji}</span>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:13,fontWeight:500}}>{h.name}</div>
-                        <div style={{fontSize:10,color:'#aaa'}}>
-                          {backlogDate === new Date().toISOString().split('T')[0]
-                            ? <span style={{color:'#d4af6a',fontWeight:600}}>+{h.coins} 🪙</span>
-                            : <span style={{color:'#bbb'}}>no coins (backlog)</span>}
+              <>
+                {/* ── Regular habits ── */}
+                <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1px',color:'#888',marginBottom:8}}>Habits</div>
+                <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>
+                  {allHabits.map(h=>{
+                    const isDone = backlogCompletions.includes(h.key);
+                    const isToday = backlogDate === new Date().toISOString().split('T')[0];
+                    return(
+                      <div key={h.key} onClick={()=>toggleBacklogHabit(h,backlogDate)}
+                        style={{display:'flex',alignItems:'center',gap:12,padding:'11px 14px',borderRadius:13,border:`1.5px solid ${isDone?'#8aad8a':'#e8e4de'}`,background:isDone?'#f3f8f3':'white',cursor:'pointer',transition:'all 0.15s'}}>
+                        <div style={{width:22,height:22,borderRadius:'50%',border:`2px solid ${isDone?'#8aad8a':'#e8e4de'}`,background:isDone?'#8aad8a':'white',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:'white',flexShrink:0,fontWeight:700}}>{isDone?'✓':''}</div>
+                        <span style={{fontSize:20,flexShrink:0}}>{h.emoji}</span>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:13,fontWeight:500}}>{h.name}</div>
+                          <div style={{fontSize:10,color:'#aaa'}}>
+                            {isToday
+                              ? <span style={{color:'#d4af6a',fontWeight:600}}>+{h.coins} 🪙</span>
+                              : <span style={{color:'#bbb'}}>no coins (backlog)</span>}
+                          </div>
                         </div>
                       </div>
+                    );
+                  })}
+                </div>
+
+                {/* ── Bad habits ── */}
+                {badHabits.length > 0 && (
+                  <>
+                    <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1px',color:'#888',marginBottom:8}}>
+                      Habits to stop
+                      <span style={{marginLeft:6,fontSize:9,color:'#c4880a',fontWeight:400,textTransform:'none'}}>no health penalty for backlog entries</span>
                     </div>
-                  );
-                })}
-              </div>
+                    <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                      {badHabits.map(h=>{
+                        const entry = backlogBadLogs[h.key];
+                        const isLogged = entry !== undefined;
+                        const failed = entry?.failed === true;
+                        return(
+                          <div key={h.key} style={{padding:'12px 14px',borderRadius:13,border:`1.5px solid ${failed?'#e07070':isLogged?'#8aad8a':'#e8e4de'}`,background:failed?'#fdf5f5':isLogged?'#f3f8f3':'white'}}>
+                            <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
+                              <span style={{fontSize:20}}>{h.emoji}</span>
+                              <div style={{flex:1}}>
+                                <div style={{fontSize:13,fontWeight:500}}>{h.name}</div>
+                                <div style={{fontSize:10,color:'#aaa'}}>−{h.healthPenalty} ❤️ if {h.type==='binary'?'done':`> ${h.threshold} ${h.unit}`} · <span style={{color:'#c4880a'}}>not applied for backlog</span></div>
+                              </div>
+                            </div>
+                            {h.type==='binary' ? (
+                              <div style={{display:'flex',gap:6}}>
+                                <button onClick={()=>toggleBacklogBadHabit(h,false,backlogDate)}
+                                  style={{flex:1,padding:'8px',borderRadius:10,border:`1.5px solid ${entry?.did_it===false?'#8aad8a':'#e8e4de'}`,background:entry?.did_it===false?'#f3f8f3':'white',color:entry?.did_it===false?'#5a7a5a':'#888',fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
+                                  ✓ Didn't
+                                </button>
+                                <button onClick={()=>toggleBacklogBadHabit(h,true,backlogDate)}
+                                  style={{flex:1,padding:'8px',borderRadius:10,border:`1.5px solid ${entry?.did_it===true?'#e07070':'#e8e4de'}`,background:entry?.did_it===true?'#fdf1ec':'white',color:entry?.did_it===true?'#a05030':'#888',fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
+                                  ⚠️ Did
+                                </button>
+                              </div>
+                            ) : (
+                              <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                                <input type="number" min="0" step="0.5"
+                                  defaultValue={entry?.amount ?? ''}
+                                  placeholder="0"
+                                  onBlur={e=>{ if(e.target.value!=='') toggleBacklogBadHabit(h,e.target.value,backlogDate); }}
+                                  onKeyDown={e=>{ if(e.key==='Enter'&&e.target.value!=='') toggleBacklogBadHabit(h,e.target.value,backlogDate); }}
+                                  style={{flex:1,padding:'7px 10px',border:'1.5px solid #e8e4de',borderRadius:10,fontSize:13,fontFamily:'DM Sans,sans-serif',outline:'none',textAlign:'center'}}/>
+                                <span style={{fontSize:11,color:'#888',minWidth:40}}>{h.unit}</span>
+                                {isLogged&&<span style={{fontSize:11,color:failed?'#a05030':'#5a7a5a'}}>logged: {entry.amount}</span>}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </>
             )}
           </div>
         </div>
