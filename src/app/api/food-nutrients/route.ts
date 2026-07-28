@@ -50,6 +50,7 @@ const NUTRIENTS: Record<number, Dv> = {
   1109: { key: 'vit_e',      label: 'Vitamin E',   dv: 15,   unit: 'mg' },
   1170: { key: 'vit_b5',     label: 'Pantothenic Acid (B5)', dv: 5, unit: 'mg' },
   1101: { key: 'manganese',  label: 'Manganese',   dv: 2.3,  unit: 'mg' },
+  2000: { key: 'sugar',       label: 'Total Sugars', dv: 25,   unit: 'g'  },  // WHO daily limit 25g free sugars
   1098: { key: 'copper',     label: 'Copper',      dv: 0.9,  unit: 'mg' },
   1103: { key: 'selenium',   label: 'Selenium',    dv: 55,   unit: 'ug' },
   1091: { key: 'phosphorus', label: 'Phosphorus',  dv: 1250, unit: 'mg' },
@@ -121,9 +122,9 @@ export async function GET(req: NextRequest) {
     if (!byKey[n.key] || n.percent_dv > byKey[n.key].percent_dv) byKey[n.key] = n;
   }
   const finalNutrients = Object.values(byKey)
-    .filter((n: any) => n.percent_dv >= 2)          // only show meaningful sources
+    .filter((n: any) => n.percent_dv >= 2 || n.key === 'sugar') // show sugar always; others: meaningful sources only
     .sort((a: any, b: any) => b.percent_dv - a.percent_dv)
-    .slice(0, 8);
+    .slice(0, 12);
 
   const record = {
     food_key: foodKey,

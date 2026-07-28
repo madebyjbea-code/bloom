@@ -9,7 +9,7 @@ import { useStore } from '../lib/store';
 import { supabase } from '../lib/supabase';
 import {
   getPantryFoods, getFoodNutrients, getRecipeSuggestions,
-  aggregateDayCoverage, groupByCategory, currentMonthName,
+  aggregateDayCoverage, aggregateDailySugarGrams, groupByCategory, currentMonthName,
   getInSeasonFoods, regionLabel, detectRegionFromTimezone, REGIONS,
   NUTRIENT_FOOD_SUGGESTIONS,
 } from '../lib/nutrition';
@@ -235,6 +235,7 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
   const coveredCount  = Object.values(macroCoverage).filter(Boolean).length;
   const allCovered    = coveredCount === MACROS.length;
   const dayCoverage   = aggregateDayCoverage(todayFoods);
+  const sugarGrams    = aggregateDailySugarGrams(todayFoods);
 
   // ── Pantry helpers ───────────────────────────────────────────────────────
   const pantryByCategory = groupByCategory(pantry.filter(f => f.name));
@@ -942,6 +943,66 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
           </div>
         )}
       </div>
+
+
+      {/* ── Sugar Awareness ─────────────────────────────────────────────────── */}
+      {todayFoods.length > 0 && (
+        <div style={CARD}>
+          <div style={LABEL}>Sugar Awareness 🍬</div>
+          {(() => {
+            const DAILY_REF = 25; // WHO free-sugar guideline (g/day for adults)
+            const pct = Math.min(100, Math.round((sugarGrams / DAILY_REF) * 100));
+            const remaining = Math.max(0, DAILY_REF - sugarGrams).toFixed(1);
+            const over = sugarGrams > DAILY_REF;
+            const overBy = (sugarGrams - DAILY_REF).toFixed(1);
+
+            // Three zones — framed as information, never as punishment
+            const zone = sugarGrams <= 15
+              ? { label: 'Low today',      color: '#5a7a5a', bg: '#f0f7f0', border: '#8aad8a',  bar: 'linear-gradient(90deg,#8aad8a,#5a7a5a)' }
+              : sugarGrams <= 25
+              ? { label: 'On track',       color: '#9a8a3a', bg: '#fdf8e0', border: '#c8b850',  bar: 'linear-gradient(90deg,#d4c850,#a89a30)' }
+              : { label: 'Over reference', color: '#a06040', bg: '#fdf3ed', border: '#d4a882',  bar: 'linear-gradient(90deg,#e8a870,#c47840)' };
+
+            return (
+              <>
+                <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 32, fontWeight: 700, color: zone.color, lineHeight: 1 }}>
+                      {sugarGrams.toFixed(1)}<span style={{ fontSize: 14, fontWeight: 400, color: '#aaa', marginLeft: 4 }}>g</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#aaa', marginTop: 3 }}>of {DAILY_REF}g WHO daily reference</div>
+                  </div>
+                  <div style={{ padding: '5px 13px', background: zone.bg, border: `1.5px solid ${zone.border}`, borderRadius: 99, fontSize: 12, fontWeight: 600, color: zone.color }}>
+                    {zone.label}
+                  </div>
+                </div>
+
+                {/* Bar */}
+                <div style={{ height: 8, background: '#f0ede8', borderRadius: 99, overflow: 'hidden', marginBottom: 10 }}>
+                  <div style={{ height: '100%', width: `${pct}%`, background: zone.bar, borderRadius: 99, transition: 'width 0.6s' }}/>
+                </div>
+
+                {/* Context */}
+                {!over ? (
+                  <p style={{ fontSize: 12, color: '#888', margin: 0 }}>
+                    {sugarGrams === 0
+                      ? 'Sugar will appear here once foods with USDA data are logged.'
+                      : `${remaining}g of headroom left today — naturally occurring sugars in whole foods count but aren't a concern.`}
+                  </p>
+                ) : (
+                  <p style={{ fontSize: 12, color: '#a06040', margin: 0 }}>
+                    {overBy}g over the reference today — mostly matters for added/free sugars, not those in whole fruit or dairy.
+                  </p>
+                )}
+
+                <div style={{ marginTop: 12, padding: '9px 12px', background: '#f7f3ed', borderRadius: 10, fontSize: 11, color: '#888', lineHeight: 1.6 }}>
+                  🔬 The 25g WHO guideline targets <em>free sugars</em> (added + fruit juice) — naturally occurring sugars in whole fruit, veg, and dairy are not the concern. USDA data here includes all sugars, so whole-food eaters will see numbers that look higher than they functionally are.
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
 
       {/* ── Today's Coverage ────────────────────────────────────────────────── */}
       <div style={CARD}>

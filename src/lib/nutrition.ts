@@ -158,6 +158,7 @@ type NutrientType = 'water_soluble_vitamin' | 'fat_soluble_vitamin' | 'mineral' 
 export const NUTRIENT_META: { key: string; label: string; type: NutrientType }[] = [
   { key: 'protein',    label: 'Protein',              type: 'macronutrient' },
   { key: 'fiber',      label: 'Fiber',                type: 'macronutrient' },
+  { key: 'sugar',      label: 'Total Sugars',         type: 'macronutrient' },
   { key: 'vit_c',      label: 'Vitamin C',            type: 'water_soluble_vitamin' },
   { key: 'thiamin',    label: 'Thiamin (B1)',         type: 'water_soluble_vitamin' },
   { key: 'riboflavin', label: 'Riboflavin (B2)',      type: 'water_soluble_vitamin' },
@@ -202,6 +203,7 @@ export const NUTRIENT_FOOD_SUGGESTIONS: Record<string, { name: string; category:
   magnesium:   [{ name: 'Almonds', category: 'nuts_seeds' }, { name: 'Spinach', category: 'leafy_greens' }, { name: 'Black beans', category: 'legumes' }, { name: 'Pumpkin seeds', category: 'nuts_seeds' }],
   protein:     [{ name: 'Chicken breast', category: 'meat_fish_eggs' }, { name: 'Greek yoghurt', category: 'dairy' }, { name: 'Lentils', category: 'legumes' }, { name: 'Egg', category: 'meat_fish_eggs' }],
   fiber:       [{ name: 'Lentils', category: 'legumes' }, { name: 'Chickpeas', category: 'legumes' }, { name: 'Oats', category: 'grains_starchy' }, { name: 'Broccoli', category: 'cruciferous' }],
+  sugar:       [{ name: 'Water', category: 'hydration' }, { name: 'Herbal tea', category: 'hydration' }, { name: 'Almonds', category: 'nuts_seeds' }, { name: 'Greek yoghurt', category: 'dairy' }],
 };
 
 export type DayCoverage = {
@@ -234,4 +236,24 @@ export function aggregateDayCoverage(entries: { nutrients?: Nutrient[] }[]): Day
   const opportunities = rest.filter((r) => r.percent < 40).sort((a, b) => a.percent - b.percent).slice(0, 3);
 
   return { waterSoluble, covered, opportunities, anyData: entries.length > 0 };
+}
+
+// ── Sugar gram total for today ────────────────────────────────────────────────
+// Sugar is tracked in grams against a 25g WHO daily reference, not as %DV, so
+// we aggregate the raw `amount` field rather than `percent_dv`.
+// The `dv: 25` on the route means percent_dv = (grams / 25) * 100, so:
+//   grams = (percent_dv / 100) * 25
+// This is a lossy reconstruction — rounding errors of ≤1g are acceptable here.
+export function aggregateDailySugarGrams(entries: { nutrients?: Nutrient[] }[]): number {
+  let total = 0;
+  for (const entry of entries) {
+    for (const n of entry.nutrients || []) {
+      if (n.key === 'sugar') {
+        // prefer amount (grams) if present; fall back to percent_dv reconstruction
+        const grams = n.unit === 'g' ? n.amount : (n.percent_dv / 100) * 25;
+        total += grams;
+      }
+    }
+  }
+  return Math.round(total * 10) / 10; // 1 decimal place
 }

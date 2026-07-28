@@ -2366,7 +2366,7 @@ export default function Dashboard() {
           {['Ocean Conservancy','Rainforest Alliance','World Wildlife Fund','Amazon Watch'].map(o=>(
             <div key={o} onClick={()=>donateGE(o,100)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'13px 16px',border:'1.5px solid #e8e4de',borderRadius:14,cursor:'pointer',transition:'all 0.2s'}}
               onMouseOver={e=>e.currentTarget.style.borderColor='#4ecb71'} onMouseOut={e=>e.currentTarget.style.borderColor='#e8e4de'}>
-              <div><div style={{fontSize:14,fontWeight:500}}>{o}</div><div style={{fontSize:11,color:'#888',marginTop:2}}>100 GE</div></div>
+              <div><div style={{fontSize:14,fontWeight:500}}>{o}</div><div style={{fontSize:11,color:'#888',marginTop:2}}>500 GE</div></div>
               <span style={{fontSize:22}}>🌍</span>
             </div>
           ))}
