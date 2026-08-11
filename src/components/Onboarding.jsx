@@ -834,7 +834,7 @@ export default function Onboarding({ onComplete }) {
 
           <div style={{ textAlign: 'center', marginTop: 16, fontSize: 12, color: '#bbb' }}>
             Don&apos;t have a code?{' '}
-            <a href="https://byjbea.gumroad.com/l/qdxti" target="_blank" rel="noreferrer" style={{ color: 'var(--sage-dark)', textDecoration: 'none', fontWeight: 500 }}>
+            <a href="https://jbeastudios.com/products/the-well-app?pb=0" target="_blank" rel="noreferrer" style={{ color: 'var(--sage-dark)', textDecoration: 'none', fontWeight: 500 }}>
               Get access →
             </a>
           </div>
@@ -1045,7 +1045,7 @@ export default function Onboarding({ onComplete }) {
 
             <div style={{ textAlign: 'center', marginTop: 16 }}>
               <a
-                href="https://byjbea.gumroad.com/l/qdxti"
+                href="https://jbeastudios.com/products/the-well-app?pb=0"
                 target="_blank"
                 rel="noreferrer"
                 style={{ fontSize: 13, color: 'var(--sage-dark)', fontWeight: 600, textDecoration: 'none' }}
