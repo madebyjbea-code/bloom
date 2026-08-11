@@ -319,16 +319,43 @@ export default function Onboarding({ onComplete }) {
   }
   const setHabits = useStore((s) => s.setHabits);
 
-  // Track quiz start on mount and restore from localStorage
+  // Track quiz start on mount and restore from Zustand
   useEffect(() => {
-    // Restore quiz scores from localStorage if user is mid-quiz
-    const saved = localStorage.getItem('bloom_quiz_scores');
-    if (saved) {
-      try {
-        setCollectedScores(JSON.parse(saved));
-      } catch (err) {
-        console.error('Failed to restore quiz scores:', err);
+    // Restore quiz scores from Zustand (persisted via localStorage)
+    const zustandScores = {};
+    const zustandNutBarrier = useStore.getState().nutBarrier;
+    const zustandMovTime = useStore.getState().movTime;
+    const zustandActivity = useStore.getState().activity;
+    const zustandStress = useStore.getState().stress;
+    const zustandStressMgmt = useStore.getState().stressMgmt;
+    const zustandMorning = useStore.getState().morning;
+    const zustandGoals = useStore.getState().goals;
+    const zustandDrain = useStore.getState().drain;
+
+    if (zustandNutBarrier) zustandScores.nutBarrier = [zustandNutBarrier];
+    if (zustandMovTime) zustandScores.movTime = [zustandMovTime];
+    if (zustandActivity) zustandScores.activity = [zustandActivity];
+    if (zustandStress) zustandScores.stress = [zustandStress];
+    if (zustandStressMgmt) zustandScores.stressMgmt = [zustandStressMgmt];
+    if (zustandMorning) zustandScores.morning = [zustandMorning];
+    if (zustandGoals && zustandGoals.length > 0) zustandScores.goal = zustandGoals;
+    if (zustandDrain && zustandDrain.length > 0) zustandScores.drain = zustandDrain;
+
+    // Also check localStorage fallback for older data
+    if (Object.keys(zustandScores).length === 0) {
+      const saved = localStorage.getItem('bloom_quiz_scores');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          Object.assign(zustandScores, parsed);
+        } catch (err) {
+          console.error('Failed to restore quiz scores:', err);
+        }
       }
+    }
+
+    if (Object.keys(zustandScores).length > 0) {
+      setCollectedScores(zustandScores);
     }
 
     if (phase === 'intro') {
@@ -377,7 +404,23 @@ export default function Onboarding({ onComplete }) {
 
     setCollectedScores(newScores);
     
-    // Persist scores to localStorage so they survive refresh
+    // Persist scores to Zustand (which persist to localStorage via middleware)
+    // This ensures quiz answers survive browser tab closure before user registers
+    const zustandUpdate = {};
+    if (newScores.nutBarrier) zustandUpdate.nutBarrier = newScores.nutBarrier[0];
+    if (newScores.movTime) zustandUpdate.movTime = newScores.movTime[0];
+    if (newScores.activity) zustandUpdate.activity = newScores.activity[0];
+    if (newScores.stress) zustandUpdate.stress = newScores.stress[0];
+    if (newScores.stressMgmt) zustandUpdate.stressMgmt = newScores.stressMgmt[0];
+    if (newScores.morning) zustandUpdate.morning = newScores.morning[0];
+    if (newScores.goal) zustandUpdate.goals = newScores.goal;
+    if (newScores.drain) zustandUpdate.drain = newScores.drain;
+    
+    if (Object.keys(zustandUpdate).length > 0) {
+      setUser(zustandUpdate);
+    }
+
+    // Also persist to localStorage for backwards compatibility
     localStorage.setItem('bloom_quiz_scores', JSON.stringify(newScores));
 
     if (current < QUESTIONS.length - 1) {
@@ -481,6 +524,15 @@ export default function Onboarding({ onComplete }) {
           coins: stats?.coins ?? 0,
           greenEnergy: stats?.green_energy ?? 0,
           level: stats?.level ?? 1,
+          // Clear any stray quiz responses from previous session
+          nutBarrier: null,
+          movTime: null,
+          activity: null,
+          stress: null,
+          stressMgmt: null,
+          morning: null,
+          goals: [],
+          drain: [],
         });
 
         const src = u.archetype_key || u.chronotype || 'steadybuilder';
@@ -589,7 +641,17 @@ export default function Onboarding({ onComplete }) {
       // Save quiz answers to Supabase
       await saveQuizAnswers(user.id, collectedScores);
 
-      // Clear localStorage since quiz is complete
+      // Clear quiz responses from Zustand and localStorage after registration completes
+      setUser({
+        nutBarrier: null,
+        movTime: null,
+        activity: null,
+        stress: null,
+        stressMgmt: null,
+        morning: null,
+        goals: [],
+        drain: [],
+      });
       localStorage.removeItem('bloom_quiz_scores');
 
       const habits = getHabitsForUser(chronotype, 1);

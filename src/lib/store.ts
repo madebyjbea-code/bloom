@@ -393,6 +393,15 @@ export const useStore = create<StoreState>()(
         // Program
         chronotype: state.chronotype,
         lifestyleLevel: state.lifestyleLevel,
+        // Quiz responses — persists across sessions if user closes before finishing
+        nutBarrier: state.nutBarrier,
+        movTime: state.movTime,
+        activity: state.activity,
+        stress: state.stress,
+        stressMgmt: state.stressMgmt,
+        morning: state.morning,
+        goals: state.goals,
+        drain: state.drain,
         // Stats
         health: state.health,
         coins: state.coins,
