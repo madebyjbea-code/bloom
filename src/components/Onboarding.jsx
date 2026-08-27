@@ -240,7 +240,7 @@ function deriveArchetype(s) {
 }
 
 const ARCHETYPES = {
-  burnout:      { name: 'The Burnt-Out Rebuilder',   icon: '🌙', chrono: null },
+  burnout:      { name: 'The Reset Seeker',   icon: '🌙', chrono: null },
   nightowl:     { name: 'The Night Bloom',            icon: '🌙', chrono: 'wolf' },
   optimizer:    { name: 'The Energised Optimizer',    icon: '⚡', chrono: 'lion' },
   scattered:    { name: 'The Scattered Spark',        icon: '🌀', chrono: 'dolphin' },
