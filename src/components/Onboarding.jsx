@@ -838,7 +838,7 @@ export default function Onboarding({ onComplete }) {
       <div style={styles.page}>
         <div style={styles.container}>
           <div style={styles.logoBar}>
-            <span style={styles.logo}>BLOOM</span>
+            <span style={styles.logo}>WELL with J Bea</span>
             <span style={styles.pill}>🌿 Personalized Wellness</span>
           </div>
 
@@ -1134,7 +1134,7 @@ export default function Onboarding({ onComplete }) {
       <div style={styles.page}>
         <div style={styles.container}>
           <div style={styles.logoBar}>
-            <span style={styles.logo}>BLOOM</span>
+            <span style={styles.logo}>WELL with J Bea</span>
             <span style={styles.pill}> Personalized Wellness</span>
           </div>
 
@@ -1147,7 +1147,7 @@ export default function Onboarding({ onComplete }) {
           </h1>
           <p style={styles.introLead}>
             Most wellness programs give everyone the same plan. BLOOM does not.
-            Your personalizedWellness Program is built from your actual biology, schedule,
+            Your personalized Wellness Program is built from your actual biology, schedule,
             stress patterns, and goals — not a generic template.
           </p>
 
@@ -1204,7 +1204,7 @@ export default function Onboarding({ onComplete }) {
       <div style={styles.page}>
         <div style={styles.container}>
           <div style={styles.logoBar}>
-            <span style={styles.logo}>BLOOM</span>
+            <span style={styles.logo}>WELL with J Bea</span>
             <span style={styles.pill}>🌿 Personalized Wellness</span>
           </div>
 
@@ -1316,7 +1316,7 @@ export default function Onboarding({ onComplete }) {
       <div style={styles.page}>
         <div style={styles.container}>
           <div style={styles.logoBar}>
-            <span style={styles.logo}>BLOOM</span>
+            <span style={styles.logo}>Well with J Bea</span>
           </div>
 
           <div style={styles.qCard}>
