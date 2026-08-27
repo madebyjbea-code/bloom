@@ -199,8 +199,8 @@ const QUESTIONS = [
     ],
   },
   {
-    pillar: '🎯 Spring Goals',
-    text: 'What matters most to you this spring?',
+    pillar: '🎯 Current Goals',
+    text: 'What matters most to you currently?',
     type: 'multi',
     opts: [
       { l: 'A', t: 'Sustained energy throughout the day', scores: { goal: 'energy' } },
@@ -634,7 +634,7 @@ export default function Onboarding({ onComplete }) {
         user_id: user.id,
         user_name: user.name,
         user_avatar_emoji: user.avatar_emoji,
-        content: `Just joined the Spring Wellness Program as ${archetype.icon} ${archetype.name}! Let's bloom 🌱`,
+        content: `Just started their personalized Wellness Program as ${archetype.icon} ${archetype.name}! Let's bloom 🌱`,
         post_type: 'milestone',
       });
 
@@ -839,7 +839,7 @@ export default function Onboarding({ onComplete }) {
         <div style={styles.container}>
           <div style={styles.logoBar}>
             <span style={styles.logo}>BLOOM</span>
-            <span style={styles.pill}>🌿 Spring Wellness</span>
+            <span style={styles.pill}>🌿 Personalized Wellness</span>
           </div>
 
           <div style={{ textAlign: 'center', marginBottom: 32 }}>
@@ -989,7 +989,7 @@ export default function Onboarding({ onComplete }) {
               '📋 4-week habit program tailored to your archetype',
               '⏱ Guided routines with step-by-step timers',
               '🔬 Science-backed habits for your biology',
-              '👥 Private Spring cohort community',
+              '👥 Private cohort community',
               '🌍 Track your environmental impact',
             ].map(item => (
               <div key={item} style={{
@@ -1054,7 +1054,7 @@ export default function Onboarding({ onComplete }) {
                 Ready to begin your journey?
               </h2>
               <p style={{ fontSize: 14, color: '#888', lineHeight: 1.7 }}>
-                Enter your access code to unlock your personalized 4-week program and join the Spring cohort.
+                Enter your access code to unlock your personalized 4-week program and join the cohort.
               </p>
             </div>
 
@@ -1066,7 +1066,7 @@ export default function Onboarding({ onComplete }) {
                 '📋 4-week program built around your biology',
                 '⏱ Guided routines with step-by-step timer',
                 '🔬 Peer-reviewed science behind every habit',
-                '👥 Private Spring cohort community',
+                '👥 Private cohort community',
               ].map(item => (
                 <div key={item} style={{ fontSize: 13, color: '#555', marginBottom: 8, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                   <span style={{ flexShrink: 0 }}>{item.split(' ')[0]}</span>
@@ -1135,10 +1135,10 @@ export default function Onboarding({ onComplete }) {
         <div style={styles.container}>
           <div style={styles.logoBar}>
             <span style={styles.logo}>BLOOM</span>
-            <span style={styles.pill}>🌿 Spring Wellness</span>
+            <span style={styles.pill}> Personalized Wellness</span>
           </div>
 
-          <div style={styles.introEyebrow}>Precision Wellness · Spring 2026</div>
+          <div style={styles.introEyebrow}>Precision Wellness </div>
           <h1 style={styles.introH1}>
             Discover your{' '}
             <em style={{ color: 'var(--sage)', fontStyle: 'italic' }}>
@@ -1147,7 +1147,7 @@ export default function Onboarding({ onComplete }) {
           </h1>
           <p style={styles.introLead}>
             Most wellness programs give everyone the same plan. BLOOM does not.
-            Your Spring Wellness Program is built from your actual biology, schedule,
+            Your personalizedWellness Program is built from your actual biology, schedule,
             stress patterns, and goals — not a generic template.
           </p>
 
@@ -1205,7 +1205,7 @@ export default function Onboarding({ onComplete }) {
         <div style={styles.container}>
           <div style={styles.logoBar}>
             <span style={styles.logo}>BLOOM</span>
-            <span style={styles.pill}>🌿 Spring Wellness</span>
+            <span style={styles.pill}>🌿 Personalized Wellness</span>
           </div>
 
           {/* Progress */}
