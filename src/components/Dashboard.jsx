@@ -23,6 +23,14 @@ import EnergyModeModal, { ModeEditor } from './EnergyModeModal';
 import SleepLogModal from './SleepLogModal';
 import WeeklyReflectionModal from './WeeklyReflectionModal';
 import { shouldTriggerReflection, getWeekStartStr } from '../lib/weeklyReflection';
+import DayPlanner from './DayPlanner';
+import HealthBreakdownModal from './HealthBreakdownModal';
+import { localDateStr } from '../lib/scheduleStorage';
+import CalendarConnectionModal from './CalendarConnectionModal';  // if using modal separately
+import { getCalendarEvents } from '../lib/calendarIntegration';
+import DailySchedulingPrompt from './DailySchedulingPrompt';
+import { saveGoogleCalendarTokens } from '../lib/calendarIntegration';
+
 
 const ROUTINES = {
   morning: {
@@ -594,6 +602,7 @@ export default function Dashboard() {
   const [customHabitOpen, setCustomHabitOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen]       = useState(false);
   const [statsLogOpen, setStatsLogOpen] = useState(false);
+  const [healthInfoOpen, setHealthInfoOpen] = useState(false);
   const [manualStats, setManualStats] = useState(() => {
     try {
       const stored = localStorage.getItem('bloom-daily-stats');
@@ -690,6 +699,7 @@ export default function Dashboard() {
   const avatarScene     = useStore(s=>s.avatarScene);
   const setAvatarScene  = useStore(s=>s.setAvatarScene);
   const isRestDayToday  = useStore(s=>s.isRestDayToday);
+  const badHabitLogsToday = useStore(s=>s.badHabitLogsToday);
   const badHabits       = useStore(s=>s.badHabits);
 
   const isAdmin = userId === ADMIN_USER_ID;
@@ -737,6 +747,9 @@ export default function Dashboard() {
     // base list instead of an empty screen.
     return (filtered.length > 0 ? filtered : baseHabits).concat(customHabits);
   })();
+  // Routines in a shape the day planner understands (duration = sum of steps)
+  const routineList = Object.entries(ROUTINES).map(([key,r])=>({ key, label:r.label, icon:r.icon, color:r.color, duration:r.steps.reduce((a,st)=>a+st.duration,0) }));
+
   // Progress: normal habits from done[], re-proving habits by frequency-aware check
   //   daily (7x/week): logged today counts as done
   //   sub-daily:       on track for the week counts as done
@@ -775,6 +788,19 @@ export default function Dashboard() {
   useEffect(()=>{
     if(userId && tab==='dashboard'){ loadSuggestedHabits(); loadLinkedGoals(); }
   },[tab, userId]);
+
+  // Handle Google Calendar OAuth callback — tokens arrive in the URL after connecting.
+  // Saves them, then reloads a clean URL so the day planner fetches fresh events.
+  useEffect(()=>{
+    const params=new URLSearchParams(window.location.search);
+    const accessToken=params.get('access_token');
+    const refreshToken=params.get('refresh_token');
+    if(accessToken && userId){
+      saveGoogleCalendarTokens(userId, accessToken, refreshToken || undefined).then(()=>{
+        window.location.replace(window.location.pathname);
+      });
+    }
+  },[userId]);
 
   // ── Award health when a self-care goal is reached (once/day per stat) ──
   // The 4 pillars that must all be recorded before health can reach 100
@@ -1575,8 +1601,9 @@ export default function Dashboard() {
         </button>
 
         {[{label:'❤️ Health',val:health,fill:health>60?'linear-gradient(90deg,#70c070,#4ea84e)':health>30?'linear-gradient(90deg,#e8b84a,#d4a030)':'linear-gradient(90deg,#e07070,#c04040)'},{label:'📋 Today',val:pct,fill:'linear-gradient(90deg,#8aad8a,#5a7a5a)'}].map(b=>(
-          <div key={b.label} style={{marginBottom:8}}>
-            <div style={{display:'flex',justifyContent:'space-between',fontSize:11,fontWeight:500,marginBottom:3}}><span>{b.label}</span><span>{b.val}%</span></div>
+          <div key={b.label} style={{marginBottom:8,cursor:b.label.includes('Health')?'pointer':'default'}}
+            {...(b.label.includes('Health')?{role:'button',tabIndex:0,title:'See what’s helping and hurting',onClick:()=>setHealthInfoOpen(true),onKeyDown:e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setHealthInfoOpen(true);}}}:{})}>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:11,fontWeight:500,marginBottom:3}}><span>{b.label}{b.label.includes('Health')&&<span style={{marginLeft:4,fontSize:10,color:'#5a7a5a',fontWeight:600}}>details ›</span>}</span><span>{b.val}%</span></div>
             <div style={{height:6,background:'rgba(0,0,0,0.1)',borderRadius:99,overflow:'hidden'}}><div style={{height:'100%',width:`${b.val}%`,background:b.fill,borderRadius:99,transition:'width 0.8s'}}/></div>
           </div>
         ))}
@@ -1871,8 +1898,9 @@ export default function Dashboard() {
           {label:'❤️ Health',val:health,fill:health>60?'linear-gradient(90deg,#70c070,#4ea84e)':health>30?'linear-gradient(90deg,#e8b84a,#d4a030)':'linear-gradient(90deg,#e07070,#c04040)'},
           {label:'🍽️ Nourish',val:fullness,fill:nourishColor,sub:nourishLabel},
         ].map(b=>(
-          <div key={b.label} style={{textAlign:'left',marginBottom:7}}>
-            <div style={{display:'flex',justifyContent:'space-between',fontSize:10,fontWeight:500,marginBottom:3}}><span>{b.label}</span><span>{b.val}%</span></div>
+          <div key={b.label} style={{textAlign:'left',marginBottom:7,cursor:b.label.includes('Health')?'pointer':'default'}}
+            {...(b.label.includes('Health')?{role:'button',tabIndex:0,title:'See what’s helping and hurting',onClick:()=>setHealthInfoOpen(true),onKeyDown:e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setHealthInfoOpen(true);}}}:{})}>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:10,fontWeight:500,marginBottom:3}}><span>{b.label}{b.label.includes('Health')&&<span style={{marginLeft:4,fontSize:9,color:'#5a7a5a',fontWeight:600}}>details ›</span>}</span><span>{b.val}%</span></div>
             <div style={{height:5,background:'rgba(0,0,0,0.1)',borderRadius:99,overflow:'hidden'}}><div style={{height:'100%',width:`${b.val}%`,background:b.fill,borderRadius:99,transition:'width 0.8s'}}/></div>
           </div>
         ))}
@@ -1901,6 +1929,11 @@ export default function Dashboard() {
         <div style={{marginBottom:20}}>
           <h1 style={{fontFamily:'Instrument Serif,serif',fontSize:28,fontWeight:400,color:'#1a1a1a',marginBottom:4}}>Good morning, {name} ✨</h1>
           <p style={{fontSize:13,color:'#888'}}>{sustainMode?'🌟 Sustain Mode':`Week ${week} of 4`} · Day {day} · {Math.max(0, allHabits.length - doneCount)} habits remaining</p>
+          </div>
+        
+        <DailySchedulingPrompt userId={userId} habits={allHabits} routines={routineList} chronotype={chronotype} />
+        
+        <div style={{display:'grid',gridTemplateColumns:'250px 1fr',gap:18,alignItems:'start'}} className="dash-main-grid">
           <div style={{display:'inline-flex',alignItems:'center',gap:6,background:sustainMode?'#f8fcf8':'#f3f8f3',border:`1px solid ${sustainMode?'#8aad8a':'#b5ceb5'}`,borderRadius:99,padding:'4px 12px',fontSize:12,color:'#5a7a5a',fontWeight:500,marginTop:8}}>
             {arch.icon} {arch.name} · {sustainMode?'Building Forever':lvMap[lvl]||'Building'}
           </div>
@@ -2247,82 +2280,115 @@ export default function Dashboard() {
     );
   };
 
+  // ── Planner: month grid + the selected day ──
+  // Today / future → time-blocked day plan (calendar + Bloom blocks + "Add to day").
+  // Past → what you completed, with backlog editing.
   const TabPlanner=()=>{
     const today=new Date();
-    const todayStr=today.toISOString().split('T')[0];
+    const todayStr=localDateStr(today);
+    const activeDay=selectedDay||todayStr;
     const startDate=new Date(today);
     startDate.setDate(today.getDate()-today.getDay()-14);
     const allDays=Array.from({length:35},(_,i)=>{
       const d=new Date(startDate); d.setDate(startDate.getDate()+i);
-      const ds=d.toISOString().split('T')[0];
-      return{n:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()],num:d.getDate(),mo:d.toLocaleDateString('en-US',{month:'short'}),dateStr:ds,isToday:ds===todayStr,isFuture:d>today,isSelected:ds===selectedDay};
+      const ds=localDateStr(d);
+      return{n:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()],num:d.getDate(),mo:d.toLocaleDateString('en-US',{month:'short'}),dateStr:ds,isToday:ds===todayStr,isPast:ds<todayStr,isSelected:ds===activeDay};
     });
+    const isPastDay=activeDay<todayStr;
+    const plannedCount=(ds)=>{ try{ return JSON.parse(localStorage.getItem('bloom_schedules')||'[]').filter(x=>x.date===ds).length; }catch{ return 0; } };
+
+    function pickDay(ds){
+      if(ds<todayStr) loadDayStats(ds);   // loads completions for past days
+      else setSelectedDay(ds);
+    }
+
     return(
-      <div style={{padding:'22px 26px',maxWidth:960}}>
-        <div style={{fontFamily:'Instrument Serif,serif',fontSize:26,marginBottom:18,color:'#1a1a1a'}}>Monthly Planner</div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:20,alignItems:'start'}} className="planner-grid-layout">
-          <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:20}}>
+      <div style={{padding:'22px 26px',maxWidth:1200}}>
+        <div style={{display:'grid',gridTemplateColumns:'minmax(260px,0.8fr) minmax(0,1.5fr)',gap:20,alignItems:'start'}} className="planner-grid-layout">
+          <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:18}}>
             <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:5,marginBottom:8}}>
               {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>(
                 <div key={d} style={{textAlign:'center',fontSize:10,fontWeight:600,color:'#888',textTransform:'uppercase',letterSpacing:0.5,padding:'6px 0'}}>{d}</div>
               ))}
             </div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:5}}>
-              {allDays.map((d,i)=>(
-                <div key={i} onClick={()=>!d.isFuture&&loadDayStats(d.dateStr)}
-                  style={{borderRadius:10,padding:'8px 4px',textAlign:'center',border:`1.5px solid ${d.isSelected?'#5a7a5a':d.isToday?'#8aad8a':'#e8e4de'}`,background:d.isSelected?'#1a2e1a':d.isToday?'#f3f8f3':'white',cursor:d.isFuture?'default':'pointer',opacity:d.isFuture?0.35:1,transition:'all 0.15s'}}>
-                  <div style={{fontSize:9,color:d.isSelected?'#7ac47a':'#bbb'}}>{d.num===1?d.mo:''}</div>
-                  <div style={{fontWeight:600,fontSize:13,color:d.isSelected?'white':d.isToday?'#5a7a5a':'#2a2a2a'}}>{d.num}</div>
-                </div>
-              ))}
+              {allDays.map((d,i)=>{
+                const n=d.isPast?0:plannedCount(d.dateStr);
+                return(
+                  <div key={i} onClick={()=>pickDay(d.dateStr)}
+                    style={{borderRadius:10,padding:'7px 2px',textAlign:'center',border:`1.5px solid ${d.isSelected?'#5a7a5a':d.isToday?'#8aad8a':'#e8e4de'}`,background:d.isSelected?'#1a2e1a':d.isToday?'#f3f8f3':'white',cursor:'pointer',opacity:d.isPast&&!d.isSelected?0.7:1,transition:'all 0.15s'}}>
+                    <div style={{fontSize:9,color:d.isSelected?'#7ac47a':'#bbb',height:11}}>{d.num===1?d.mo:''}</div>
+                    <div style={{fontWeight:600,fontSize:13,color:d.isSelected?'white':d.isToday?'#5a7a5a':'#2a2a2a'}}>{d.num}</div>
+                    <div style={{height:8,display:'flex',justifyContent:'center',gap:2,marginTop:2}}>
+                      {Array.from({length:Math.min(n,3)}).map((_,k)=>(<div key={k} style={{width:4,height:4,borderRadius:'50%',background:d.isSelected?'#7ac47a':'#8aad8a'}}/>))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            <div style={{fontSize:11,color:'#aaa',marginTop:12,textAlign:'center'}}>Tap any past day to see your stats</div>
+            <div style={{fontSize:11,color:'#aaa',marginTop:12,textAlign:'center'}}>Today or later → plan the day · earlier → review it</div>
           </div>
+
+          {/* Right panel */}
           <div>
-            {!selectedDay&&(
+            {!isPastDay && (
+              <DayPlanner
+                variant="planner"
+                userId={userId}
+                date={activeDay}
+                habits={allHabits}
+                routines={routineList}
+                chronotype={chronotype}
+              />
+            )}
+
+            {isPastDay && dayStatsLoading && (
               <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:24,textAlign:'center'}}>
-                <div style={{fontSize:32,marginBottom:12}}>📅</div>
-                <div style={{fontFamily:'Instrument Serif,serif',fontSize:18,color:'#1a1a1a',marginBottom:6}}>Select a day</div>
-                <div style={{fontSize:13,color:'#888',lineHeight:1.5}}>Tap any date to see habit completions and routine activity.</div>
+                <div style={{fontSize:24,marginBottom:8}}>⏳</div>
+                <div style={{fontSize:13,color:'#888'}}>Loading stats...</div>
               </div>
             )}
-            {selectedDay&&dayStatsLoading&&(
-              <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:24,textAlign:'center'}}>
-                <div style={{fontSize:24,marginBottom:8}}>⏳</div><div style={{fontSize:13,color:'#888'}}>Loading stats...</div>
-              </div>
-            )}
-            {selectedDay&&!dayStatsLoading&&dayStats&&(
+
+            {isPastDay && !dayStatsLoading && dayStats && dayStats.date===activeDay && (
               <div style={{display:'flex',flexDirection:'column',gap:12}}>
                 <div style={{background:'#1a2e1a',borderRadius:20,padding:20,color:'white'}}>
-                  <div style={{fontSize:11,color:'#4a6a4a',textTransform:'uppercase',letterSpacing:1,marginBottom:4}}>{new Date(selectedDay+'T12:00:00').toLocaleDateString('en-US',{weekday:'long'})}</div>
-                  <div style={{fontFamily:'Instrument Serif,serif',fontSize:22,color:'white',marginBottom:12}}>{new Date(selectedDay+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric'})}</div>
+                  <div style={{fontSize:11,color:'#4a6a4a',textTransform:'uppercase',letterSpacing:1,marginBottom:4}}>
+                    {new Date(activeDay+'T12:00:00').toLocaleDateString('en-US',{weekday:'long'})}
+                  </div>
+                  <div style={{fontFamily:'Instrument Serif,serif',fontSize:22,color:'white',marginBottom:12}}>
+                    {new Date(activeDay+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric'})}
+                  </div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
-                    {[{v:dayStats.completed.length,l:'Habits done',c:'#7ac47a'},{v:`+${dayStats.totalCoins}`,l:'Coins earned',c:'#d4af6a'},{v:`+${dayStats.totalGE}`,l:'GE generated',c:'#4ecb71'}].map(s=>(
-                      <div key={s.l} style={{textAlign:'center',background:'rgba(255,255,255,0.06)',borderRadius:10,padding:'10px 6px'}}>
-                        <div style={{fontFamily:'Syne,sans-serif',fontSize:18,fontWeight:700,color:s.c}}>{s.v}</div>
-                        <div style={{fontSize:10,color:'#4a6a4a',marginTop:3}}>{s.l}</div>
+                    {[
+                      {v:dayStats.completed.length,l:'Habits done',c:'#7ac47a'},
+                      {v:`+${dayStats.totalCoins}`,l:'Coins earned',c:'#d4af6a'},
+                      {v:`+${dayStats.totalGE}`,l:'GE generated',c:'#4ecb71'}
+                    ].map(st=>(
+                      <div key={st.l} style={{textAlign:'center',background:'rgba(255,255,255,0.06)',borderRadius:10,padding:'10px 6px'}}>
+                        <div style={{fontFamily:'Syne,sans-serif',fontSize:18,fontWeight:700,color:st.c}}>{st.v}</div>
+                        <div style={{fontSize:10,color:'#4a6a4a',marginTop:3}}>{st.l}</div>
                       </div>
                     ))}
                   </div>
                 </div>
+
                 <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:18}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-                    <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888'}}>Habits completed ({dayStats.completed.length})</div>
-                    {selectedDay !== new Date().toISOString().split('T')[0] && (
-                      <button onClick={()=>openBacklog(selectedDay)}
-                        style={{fontSize:10,fontWeight:600,color:'#5a7a5a',background:'#f3f8f3',border:'1px solid #b5ceb5',borderRadius:99,padding:'4px 10px',cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
-                        ✏️ Edit
-                      </button>
-                    )}
+                    <div style={{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'1.2px',color:'#888'}}>
+                      Habits completed ({dayStats.completed.length})
+                    </div>
+                    <button onClick={()=>openBacklog(activeDay)}
+                      style={{fontSize:10,fontWeight:600,color:'#5a7a5a',background:'#f3f8f3',border:'1px solid #b5ceb5',borderRadius:99,padding:'4px 10px',cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
+                      ✏️ Edit
+                    </button>
                   </div>
+
                   {dayStats.completed.length===0?(
                     <div style={{textAlign:'center',padding:'12px 0'}}>
                       <div style={{fontSize:13,color:'#bbb',marginBottom:8}}>No habits recorded</div>
-                      {selectedDay !== new Date().toISOString().split('T')[0] && (
-                        <button onClick={()=>openBacklog(selectedDay)} style={{fontSize:12,color:'#5a7a5a',background:'#f3f8f3',border:'1px solid #b5ceb5',borderRadius:99,padding:'6px 14px',cursor:'pointer',fontFamily:'DM Sans,sans-serif',fontWeight:600}}>
-                          📅 Fill in backlog
-                        </button>
-                      )}
+                      <button onClick={()=>openBacklog(activeDay)} style={{fontSize:12,color:'#5a7a5a',background:'#f3f8f3',border:'1px solid #b5ceb5',borderRadius:99,padding:'6px 14px',cursor:'pointer',fontFamily:'DM Sans,sans-serif',fontWeight:600}}>
+                        📅 Fill in backlog
+                      </button>
                     </div>
                   ):(
                     <div style={{display:'flex',flexDirection:'column',gap:7}}>
@@ -2336,6 +2402,14 @@ export default function Dashboard() {
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {isPastDay && !dayStatsLoading && (!dayStats || dayStats.date!==activeDay) && (
+              <div style={{background:'white',border:'1.5px solid #e8e4de',borderRadius:20,padding:24,textAlign:'center'}}>
+                <button onClick={()=>loadDayStats(activeDay)} style={{fontSize:12,color:'#5a7a5a',background:'#f3f8f3',border:'1px solid #b5ceb5',borderRadius:99,padding:'8px 16px',cursor:'pointer',fontFamily:'DM Sans,sans-serif',fontWeight:600}}>
+                  Show this day
+                </button>
               </div>
             )}
           </div>
@@ -2710,7 +2784,7 @@ export default function Dashboard() {
     habits:{t:'Habits ✅',s:`${done.length}/${habits.length} complete today`},
 
     routines:{t:routine?`${ROUTINES[routine]?.label} ${ROUTINES[routine]?.icon}`:'Routines ⏱',s:routine?`Step ${rStep+1} of ${ROUTINES[routine]?.steps.length}`:'Guided step-by-step sessions'},
-    planner:{t:'Planner 📅',s:`Week ${week} of 4`},
+    planner:{t:'Planner 📅',s:'Plan your days around your calendar'},
     planet:{t:'Planet 🌍',s:`${ge} GE generated`},
     community:{t:'Community 👥',s:'Your wellness cohort'},
     settings:{t:'Profile & Settings ⚙️',s:`${arch.icon} ${arch.name} · ${lvMap[lvl]||'Building'}`},
@@ -2905,6 +2979,40 @@ export default function Dashboard() {
       {reflOpen      && <ReflModal week={week} refl={refl} setRefl={setRefl} submitRefl={submitRefl}/>}
       {customHabitOpen && <CustomHabitModal onClose={()=>setCustomHabitOpen(false)}/>}
       {statsLogOpen  && <StatsLogModal manualStats={manualStats} setManualStats={setManualStats} awardStatHealth={awardStatHealth} setStatsLogOpen={setStatsLogOpen}/>}
+      {healthInfoOpen && (()=>{
+        const todayKey = new Date().toISOString().split('T')[0];
+        const defs = [
+          {key:'water',       label:'Water',       goal:2.5, goalText:'2.5 L',  reward:STAT_GOALS.water.reward,       fmt:v=>`${trimNum(v)} L`},
+          {key:'mindfulness', label:'Mindfulness', goal:10,  goalText:'10 min', reward:STAT_GOALS.mindfulness.reward, fmt:v=>`${trimNum(v)} min`},
+          {key:'movement',    label:'Movement',    goal:15,  goalText:'15 min', reward:STAT_GOALS.movement.reward,    fmt:v=>`${trimNum(v)} min`},
+          {key:'sleep',       label:'Sleep',       goal:6,   goalText:'6 h',    reward:0,                             fmt:v=>`${Math.floor(v)} h ${Math.round((v%1)*60)} min`},
+        ];
+        const pillars = defs.map(d=>{
+          const v = Number(manualStats[d.key]||0);
+          return { key:d.key, label:d.label, valueText:d.fmt(v), goalText:d.goalText, reward:d.reward,
+                   met:PILLAR_THRESHOLDS[d.key].hit(v), remaining:Math.max(0,d.goal-v), progress:(v/d.goal)*100 };
+        });
+        const badSlips = (badHabits||[]).filter(h=>badHabitLogsToday?.[h.key]?.failed).map(h=>({ name:`${h.emoji||''} ${h.name}`.trim(), penalty:h.healthPenalty||0 }));
+        const remainingHabitNames = allHabits.filter(h=>!done.includes(h.key)).map(h=>h.label||h.name).filter(Boolean);
+        return (
+          <HealthBreakdownModal
+            health={health}
+            cap={corePillarsCap(manualStats)}
+            pillars={pillars}
+            habitsDone={doneCount}
+            habitsTotal={allHabits.length}
+            remainingHabitNames={remainingHabitNames}
+            badSlips={badSlips}
+            overnightApplied={lastDecayDate===todayKey && !isRestDayToday}
+            isRestDay={isRestDayToday}
+            onClose={()=>setHealthInfoOpen(false)}
+            onLogStats={()=>setStatsLogOpen(true)}
+            onLogSleep={()=>setSleepLogOpen(true)}
+            onGoNourish={()=>setTab('nourish')}
+            onGoHabits={()=>setTab('habits')}
+          />
+        );
+      })()}
       {feedbackOpen  && <FeedbackModal onClose={()=>setFeedbackOpen(false)}/>}
       {streakHistoryOpen && <StreakHistoryModal habit={streakHistoryHabit} streakData={streaks[streakHistoryHabit?.key]} onClose={()=>setStreakHistoryOpen(false)}/>}
       {sustainUnlockOpen && <SustainUnlockModal onClose={()=>setSustainUnlockOpen(false)}/>}

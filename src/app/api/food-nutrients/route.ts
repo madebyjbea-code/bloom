@@ -54,7 +54,21 @@ const NUTRIENTS: Record<number, Dv> = {
   1098: { key: 'copper',     label: 'Copper',      dv: 0.9,  unit: 'mg' },
   1103: { key: 'selenium',   label: 'Selenium',    dv: 55,   unit: 'ug' },
   1091: { key: 'phosphorus', label: 'Phosphorus',  dv: 1250, unit: 'mg' },
+  // v4 additions — macros + the remaining micronutrients
+  1063: { key: 'sugar',      label: 'Total Sugars', dv: 25,  unit: 'g'  },  // Foundation foods use 1063
+  1004: { key: 'fat',        label: 'Fat',          dv: 78,  unit: 'g'  },
+  1258: { key: 'sat_fat',    label: 'Saturated fat', dv: 20, unit: 'g'  },
+  1005: { key: 'carbs',      label: 'Carbohydrate', dv: 275, unit: 'g'  },
+  1093: { key: 'sodium',     label: 'Sodium',       dv: 2000, unit: 'mg' }, // WHO limit
+  1100: { key: 'iodine',     label: 'Iodine',       dv: 150, unit: 'ug' },
+  1176: { key: 'biotin',     label: 'Biotin',       dv: 30,  unit: 'ug' },
 };
+
+// Omega-3s are summed across fatty-acid ids (ALA + EPA + DPA + DHA).
+// 1404 = ALA (n-3 specific), 1270 = 18:3 in SR Legacy (mostly ALA).
+const OMEGA3_IDS = [1404, 1278, 1280, 1272];
+const OMEGA3_FALLBACK_ALA = 1270;
+const OMEGA3_DV = 1.1; // g/day adequate intake (women; men 1.6)
 
 const TO_GRAMS: Record<string, number> = { G: 1, MG: 1e-3, UG: 1e-6, µG: 1e-6 };
 const UNIT_GRAMS: Record<string, number> = { g: 1, mg: 1e-3, ug: 1e-6 };
@@ -71,7 +85,9 @@ export async function GET(req: NextRequest) {
   const grams = Number(req.nextUrl.searchParams.get('grams')) || 100;
   if (!name) return NextResponse.json({ error: 'name required' }, { status: 400 });
 
-  const foodKey = `${name.toLowerCase()}@${Math.round(grams)}`;
+  // v2 prefix: v4 records carry macros + every micronutrient, so older cached
+  // rows (top-12 only) are simply not reused.
+  const foodKey = `v2|${name.toLowerCase()}@${Math.round(grams)}`;
 
   // 1. Cache
   try {
@@ -121,10 +137,23 @@ export async function GET(req: NextRequest) {
   for (const n of nutrients) {
     if (!byKey[n.key] || n.percent_dv > byKey[n.key].percent_dv) byKey[n.key] = n;
   }
+  // Omega-3 total
+  const fnById: Record<number, any> = {};
+  for (const n of fdcFood.foodNutrients as any[]) fnById[n.nutrientId] = n;
+  const ids = OMEGA3_IDS.some((id) => fnById[id]) ? OMEGA3_IDS : [OMEGA3_FALLBACK_ALA];
+  const omega3 = ids.reduce((sum, id) => {
+    const n = fnById[id];
+    const g = n ? toDvUnit(Number(n.value) * factor, n.unitName, 'g') : 0;
+    return sum + (g && isFinite(g) ? g : 0);
+  }, 0);
+  if (omega3 > 0) {
+    byKey.omega3 = { key: 'omega3', label: 'Omega-3', amount: Math.round(omega3 * 100) / 100, unit: 'g', percent_dv: Math.round((omega3 / OMEGA3_DV) * 100) };
+  }
+
+  // Keep everything (the weekly stores need small contributions too),
+  // highest %DV first so older UI that slices the top few still works.
   const finalNutrients = Object.values(byKey)
-    .filter((n: any) => n.percent_dv >= 2 || n.key === 'sugar') // show sugar always; others: meaningful sources only
-    .sort((a: any, b: any) => b.percent_dv - a.percent_dv)
-    .slice(0, 12);
+    .sort((a: any, b: any) => b.percent_dv - a.percent_dv);
 
   const record = {
     food_key: foodKey,

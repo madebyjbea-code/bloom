@@ -44,6 +44,12 @@ export default function OneSignalProvider() {
   }
 
   async function initOneSignal() {
+    // Skip on localhost — OneSignal only works on production
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      console.log('OneSignal skipped on localhost');
+      return;
+    }
+
     try {
       // Prevent double-init
       if (window._oneSignalInitDone) return;
@@ -52,6 +58,7 @@ export default function OneSignalProvider() {
       if (!window.OneSignalDeferred) {
         window.OneSignalDeferred = [];
       }
+      // ... rest stays the same
 
       // Load SDK and WAIT for it to be ready before pushing to queue
       await new Promise((resolve, reject) => {

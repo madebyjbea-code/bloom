@@ -14,6 +14,35 @@ import {
   NUTRIENT_FOOD_SUGGESTIONS,
 } from '../lib/nutrition';
 import { resolveServing, servingText, qtyLabel, QTY_STEPS } from '../lib/servingSizes';
+import { getRecipes } from '../lib/nutrition';
+import { classifySugar, MICROS, DEFAULT_TARGETS, loadTargets } from '../lib/nutrientModel';
+import { TypeMealPanel, MealSummaryCard, MacrosCard, SugarCard } from './NourishInsights';
+import NourishWeek from './NourishWeek';
+
+const MICRO_KEYS = new Set(MICROS.map(m => m.key));
+
+// Best-guess food group for typed foods, so they still count toward variety
+const CATEGORY_HINTS = [
+  [/salmon|mackerel|sardine|herring|trout|anchov/, 'oily_fish'],
+  [/chicken|turkey|beef|pork|lamb|egg|tuna|cod|prawn|shrimp|fish|tofu|tempeh/, 'meat_fish_eggs'],
+  [/milk|yog|kefir|cheese|feta|skyr|quark|cream/, 'dairy'],
+  [/lentil|chickpea|bean|edamame|pea\b|hummus/, 'legumes'],
+  [/almond|walnut|cashew|hazelnut|peanut|seed|chia|flax|tahini|nut\b/, 'nuts_seeds'],
+  [/avocado|olive oil|olive/, 'healthy_fats'],
+  [/oat|rice|quinoa|bread|sourdough|pasta|noodle|potato|couscous|barley|tortilla|wrap/, 'grains_starchy'],
+  [/broccoli|cauliflower|kale|cabbage|brussels|rocket|bok choy/, 'cruciferous'],
+  [/carrot|beet|parsnip|celeriac|swede|radish/, 'root_veg'],
+  [/spinach|chard|watercress|lettuce|greens/, 'leafy_greens'],
+  [/apple|banana|berr|orange|mandarin|clementine|pear|date|kiwi|mango|grape|plum|peach|cherr|fig|raisin|apricot|lemon|lime|melon|pineapple/, 'fruit'],
+  [/kimchi|sauerkraut|miso|kombucha|tempeh/, 'fermented'],
+  [/mushroom/, 'mushrooms'],
+  [/water|herbal tea/, 'hydration'],
+];
+function guessCategory(name) {
+  const n = String(name).toLowerCase();
+  const hit = CATEGORY_HINTS.find(([re]) => re.test(n));
+  return hit ? hit[1] : null;
+}
 
 // ── Food categories (unchanged) ─────────────────────────────────────────────
 const FOOD_CATEGORIES = [
@@ -177,6 +206,15 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
     veg: false, protein: false, carbs: false, fats: false, hydration: false,
   });
   const [takeoutCuisine, setTakeoutCuisine] = useState(null);
+
+  // ── v4: Today / This week, typed logging, meal summary, macro targets ─────
+  const [view, setView]                   = useState('today');
+  const [foodMode, setFoodMode]           = useState('type');   // 'type' | 'pick'
+  const [lastMealSummary, setLastMealSummary] = useState(null);
+  const [targets, setTargets]             = useState(DEFAULT_TARGETS);
+  const [allRecipes, setAllRecipes]       = useState([]);
+  useEffect(() => { setTargets(loadTargets()); }, []);
+  useEffect(() => { if (view === 'week' && allRecipes.length === 0) getRecipes().then(setAllRecipes); }, [view]);
 
   const searchRef = useRef(null);
   const recipeSectionRef = useRef(null);
@@ -358,10 +396,14 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
         servingLabel: servingText(sel.serving, sel.qty),
         nutrients: result?.nutrients || [],
         source: result?.source || 'none',
+        prep: [],
+        sugarForm: classifySugar(sel.name, [], logQuality).form,
+        sugarReason: classifySugar(sel.name, [], logQuality).reason,
       });
     }
     setFetchingNutrients(false);
     setTodayFoods(prev => [...prev, ...newEntries]);
+    setLastMealSummary({ title: null, mealLabel: LOG_MEAL_OPTIONS.find(m => m.key === logMealSlot)?.label || 'This meal', entries: newEntries, quality: logQuality });
     // Update category coverage
     const newCats = newEntries.map(e => e.category).filter(Boolean);
     setSelectedCategories(prev => [...new Set([...prev, ...newCats])]);
@@ -369,6 +411,46 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
     if (newEntries.length > 0) setExpandedEntry(newEntries[0].id);
     toast(`🍽️ ${newEntries.length} food${newEntries.length > 1 ? 's' : ''} logged`);
     cancelLog();
+  }
+
+  // Typed meal → one entry per ingredient, nutrients fetched in parallel
+  async function confirmTyped(items, title) {
+    if (!items.length) return;
+    setFetchingNutrients(true);
+    const results = await Promise.all(items.map(it => getFoodNutrients(it.name, it.grams)));
+    const stamp = Date.now();
+    const newEntries = items.map((it, idx) => ({
+      id: `${stamp}-${idx}-${it.name}`,
+      name: it.display || it.name,
+      lookupName: it.name,
+      category: guessCategory(it.name),
+      meal: logMealSlot,
+      grams: Math.round(it.grams),
+      servingLabel: it.amountText || `${Math.round(it.grams)} g`,
+      nutrients: results[idx]?.nutrients || [],
+      source: results[idx]?.source || 'none',
+      prep: it.prep || [],
+      sugarForm: it.sugarForm,
+      sugarReason: it.sugarReason,
+      dish: title || null,
+    }));
+    setFetchingNutrients(false);
+    setTodayFoods(prev => [...prev, ...newEntries]);
+    const newCats = newEntries.map(e => e.category).filter(Boolean);
+    setSelectedCategories(prev => [...new Set([...prev, ...newCats])]);
+    setLastMealSummary({ title, mealLabel: LOG_MEAL_OPTIONS.find(m => m.key === logMealSlot)?.label || 'This meal', entries: newEntries, quality: logQuality });
+    toast(`🍽️ ${title ? `${title} · ` : ''}${newEntries.length} item${newEntries.length > 1 ? 's' : ''} logged`);
+    cancelLog();
+  }
+
+  function addNamesToShoppingList(names) {
+    setShoppingList(prev => {
+      const existing = new Set(prev.map(i => i.name.toLowerCase()));
+      const additions = names.filter(n => !existing.has(n.toLowerCase())).map(n => ({ id: `${Date.now()}-${n}`, name: n, checked: false }));
+      if (additions.length) toast(`🛒 Added ${additions.length} ingredient${additions.length > 1 ? 's' : ''} to shopping list`);
+      else toast('Already on your shopping list 🌿');
+      return [...prev, ...additions];
+    });
   }
 
   // Takeout coverage toggles map to synthetic food entries so macro/coverage display works
@@ -539,8 +621,30 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
 
       <div style={{ marginBottom: 24 }}>
         <h2 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 26, fontWeight: 400, color: '#1a1a16', marginBottom: 4 }}>Nourish 🥗</h2>
-        <p style={{ fontSize: 13, color: '#888', lineHeight: 1.6 }}>Log what you ate — no macros to track, no guilt.</p>
+        <p style={{ fontSize: 13, color: '#888', lineHeight: 1.6 }}>Log what you ate — see what it gives you, no guilt.</p>
       </div>
+
+      {/* ── Today / This week ─────────────────────────────────────────────── */}
+      <div role="tablist" aria-label="Nourish view" style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 4, background: '#ebe6dd', borderRadius: 99, padding: 4, marginBottom: 20, maxWidth: 360 }}>
+        {[['today', 'Today'], ['week', 'This week']].map(([k, l]) => (
+          <button key={k} role="tab" aria-selected={view === k} onClick={() => setView(k)}
+            style={{ height: 38, border: 'none', borderRadius: 99, background: view === k ? 'white' : 'transparent', color: view === k ? '#1a1a16' : '#666', fontFamily: 'DM Sans,sans-serif', fontSize: 13, fontWeight: view === k ? 700 : 600, cursor: 'pointer', boxShadow: view === k ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {view === 'week' ? (
+        <NourishWeek
+          foodsByDate={{ ...loadJSON(FOODS_KEY, {}), [today]: todayFoods }}
+          mealsByDate={{ ...loadJSON(STORAGE_KEY, {}), [today]: { categories: selectedCategories, meals } }}
+          todayKey={today}
+          targets={targets}
+          notionRecipes={allRecipes}
+          inSeasonNames={inSeason.map(f => f.name)}
+          onAddToShopping={addNamesToShoppingList}
+        />
+      ) : (<>
 
       {/* ── In Season ──────────────────────────────────────────────────────── */}
       <div style={CARD}>
@@ -801,6 +905,17 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
             {/* STEP 3: What you ate — multi-select foods */}
             {logStep === 'foods' && (
               <div>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+                  {[['type', '✍️ Type it'], ['pick', '📋 Pick from list']].map(([k, l]) => (
+                    <button key={k} onClick={() => setFoodMode(k)}
+                      style={{ padding: '7px 14px', borderRadius: 99, border: `1.5px solid ${foodMode === k ? '#5a7a5a' : '#e8e4de'}`, background: foodMode === k ? '#5a7a5a' : 'white', color: foodMode === k ? 'white' : '#555', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
+                      {l}
+                    </button>
+                  ))}
+                </div>
+                {foodMode === 'type' ? (
+                  <TypeMealPanel quality={logQuality} busy={fetchingNutrients} onConfirm={confirmTyped} onBack={() => setLogStep('quality')} />
+                ) : (<>
                 <div style={{ fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 10 }}>
                   What did you eat? <span style={{ fontWeight: 400, color: '#aaa' }}>Select everything in this meal</span>
                 </div>
@@ -891,6 +1006,7 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
                   </button>
                   <button onClick={() => setLogStep('quality')} style={{ padding: '11px 14px', borderRadius: 10, border: '1.5px solid #e8e4de', background: 'white', fontSize: 12, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif', color: '#888' }}>← Back</button>
                 </div>
+                </>)}
               </div>
             )}
           </>
@@ -923,7 +1039,7 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
                         {expandedEntry === f.id && f.nutrients?.length > 0 && (
                           <div style={{ padding: '4px 14px 14px', borderTop: '1px solid #f0ede8' }}>
                             <div style={{ fontSize: 10, color: '#aaa', margin: '8px 0' }}>Strong source of · USDA FoodData Central</div>
-                            {f.nutrients.slice(0, 5).map(n => (
+                            {f.nutrients.filter(n => MICRO_KEYS.has(n.key)).slice(0, 5).map(n => (
                               <div key={n.key} style={{ marginBottom: 7 }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}><span>{n.label}</span><span style={{ color: '#888' }}>{n.percent_dv}% DV</span></div>
                                 <div style={{ height: 6, background: '#f0ede8', borderRadius: 99, overflow: 'hidden' }}><div style={{ height: '100%', width: `${Math.min(100, n.percent_dv)}%`, background: '#8aad8a', borderRadius: 99 }} /></div>
@@ -945,64 +1061,10 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
       </div>
 
 
-      {/* ── Sugar Awareness ─────────────────────────────────────────────────── */}
-      {todayFoods.length > 0 && (
-        <div style={CARD}>
-          <div style={LABEL}>Sugar Awareness 🍬</div>
-          {(() => {
-            const DAILY_REF = 25; // WHO free-sugar guideline (g/day for adults)
-            const pct = Math.min(100, Math.round((sugarGrams / DAILY_REF) * 100));
-            const remaining = Math.max(0, DAILY_REF - sugarGrams).toFixed(1);
-            const over = sugarGrams > DAILY_REF;
-            const overBy = (sugarGrams - DAILY_REF).toFixed(1);
-
-            // Three zones — framed as information, never as punishment
-            const zone = sugarGrams <= 15
-              ? { label: 'Low today',      color: '#5a7a5a', bg: '#f0f7f0', border: '#8aad8a',  bar: 'linear-gradient(90deg,#8aad8a,#5a7a5a)' }
-              : sugarGrams <= 25
-              ? { label: 'On track',       color: '#9a8a3a', bg: '#fdf8e0', border: '#c8b850',  bar: 'linear-gradient(90deg,#d4c850,#a89a30)' }
-              : { label: 'Over reference', color: '#a06040', bg: '#fdf3ed', border: '#d4a882',  bar: 'linear-gradient(90deg,#e8a870,#c47840)' };
-
-            return (
-              <>
-                <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <div>
-                    <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 32, fontWeight: 700, color: zone.color, lineHeight: 1 }}>
-                      {sugarGrams.toFixed(1)}<span style={{ fontSize: 14, fontWeight: 400, color: '#aaa', marginLeft: 4 }}>g</span>
-                    </div>
-                    <div style={{ fontSize: 11, color: '#aaa', marginTop: 3 }}>of {DAILY_REF}g WHO daily reference</div>
-                  </div>
-                  <div style={{ padding: '5px 13px', background: zone.bg, border: `1.5px solid ${zone.border}`, borderRadius: 99, fontSize: 12, fontWeight: 600, color: zone.color }}>
-                    {zone.label}
-                  </div>
-                </div>
-
-                {/* Bar */}
-                <div style={{ height: 8, background: '#f0ede8', borderRadius: 99, overflow: 'hidden', marginBottom: 10 }}>
-                  <div style={{ height: '100%', width: `${pct}%`, background: zone.bar, borderRadius: 99, transition: 'width 0.6s' }}/>
-                </div>
-
-                {/* Context */}
-                {!over ? (
-                  <p style={{ fontSize: 12, color: '#888', margin: 0 }}>
-                    {sugarGrams === 0
-                      ? 'Sugar will appear here once foods with USDA data are logged.'
-                      : `${remaining}g of headroom left today — naturally occurring sugars in whole foods count but aren't a concern.`}
-                  </p>
-                ) : (
-                  <p style={{ fontSize: 12, color: '#a06040', margin: 0 }}>
-                    {overBy}g over the reference today — mostly matters for added/free sugars, not those in whole fruit or dairy.
-                  </p>
-                )}
-
-                <div style={{ marginTop: 12, padding: '9px 12px', background: '#f7f3ed', borderRadius: 10, fontSize: 11, color: '#888', lineHeight: 1.6 }}>
-                  🔬 The 25g WHO guideline targets <em>free sugars</em> (added + fruit juice) — naturally occurring sugars in whole fruit, veg, and dairy are not the concern. USDA data here includes all sugars, so whole-food eaters will see numbers that look higher than they functionally are.
-                </div>
-              </>
-            );
-          })()}
-        </div>
-      )}
+      {/* ── v4: this meal, today's macros, free vs natural sugar ──────────── */}
+      <MealSummaryCard summary={lastMealSummary} onClose={() => setLastMealSummary(null)} />
+      <MacrosCard entries={todayFoods} meals={meals} targets={targets} setTargets={setTargets} />
+      <SugarCard entries={todayFoods} meals={meals} limit={targets.freeSugar} />
 
       {/* ── Today's Coverage ────────────────────────────────────────────────── */}
       <div style={CARD}>
@@ -1013,7 +1075,7 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
           <>
             <div style={{ marginBottom: 18, padding: '12px 14px', background: '#fdf8ed', border: '1px solid #e8c8a0', borderRadius: 12 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#9a7a2a', marginBottom: 2 }}>Water-soluble vitamins</div>
-              <div style={{ fontSize: 10.5, color: '#b8935a', marginBottom: 10, lineHeight: 1.5 }}>Your body doesn't store these — they need topping up daily.</div>
+              <div style={{ fontSize: 10.5, color: '#b8935a', marginBottom: 10, lineHeight: 1.5 }}>Your body keeps only small reserves of most of these, so steady intake matters.</div>
               {dayCoverage.waterSoluble.map(n => (
                 <div key={n.key} style={{ marginBottom: 10 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}><span>{n.label}</span><span style={{ color: '#9a7a2a', fontWeight: 600 }}>{n.percent}% DV</span></div>
@@ -1242,6 +1304,7 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
           </div>
         </div>
       )}
+      </>)}
     </div>
   );
 }

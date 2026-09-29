@@ -38,7 +38,7 @@ export const COMMON_SERVINGS: Record<string, ServingInfo> = {
   'kidney beans':           { grams: 177, unitLabel: 'cup',                 pluralLabel: 'cups' },
   'almonds':                { grams: 28,  unitLabel: 'handful',             pluralLabel: 'handfuls' },
   'walnuts':                { grams: 28,  unitLabel: 'handful',             pluralLabel: 'handfuls' },
-  'chia seeds':             { grams: 15,  unitLabel: 'tbsp',                pluralLabel: 'tbsp' },
+  'chia seeds':             { grams: 12,  unitLabel: 'tbsp',                pluralLabel: 'tbsp' },
   'flaxseed':               { grams: 15,  unitLabel: 'tbsp',                pluralLabel: 'tbsp' },
   'pumpkin seeds':          { grams: 28,  unitLabel: 'handful',             pluralLabel: 'handfuls' },
   'avocado':                { grams: 150, unitLabel: 'avocado',             pluralLabel: 'avocados' },
@@ -166,17 +166,88 @@ export const COMMON_SERVINGS: Record<string, ServingInfo> = {
   'pomegranate':            { grams: 87,  unitLabel: 'cup, seeds',          pluralLabel: 'cups, seeds' },
 };
 
+// ── Extra everyday ingredients (added v4 for typed-meal logging) ─────────
+Object.assign(COMMON_SERVINGS, {
+  'date':                   { grams: 24,  unitLabel: 'date',                pluralLabel: 'dates' },
+  'dates':                  { grams: 24,  unitLabel: 'date',                pluralLabel: 'dates' },
+  'medjool date':           { grams: 24,  unitLabel: 'date',                pluralLabel: 'dates' },
+  'dried apricots':         { grams: 30,  unitLabel: 'handful',             pluralLabel: 'handfuls' },
+  'raisins':                { grams: 30,  unitLabel: 'handful',             pluralLabel: 'handfuls' },
+  'mandarin':               { grams: 74,  unitLabel: 'mandarin',            pluralLabel: 'mandarins' },
+  'kiwi':                   { grams: 70,  unitLabel: 'kiwi',                pluralLabel: 'kiwis' },
+  'lemon':                  { grams: 60,  unitLabel: 'lemon',               pluralLabel: 'lemons' },
+  'mango':                  { grams: 165, unitLabel: 'cup, sliced',         pluralLabel: 'cups, sliced' },
+  'grapes':                 { grams: 80,  unitLabel: 'handful',             pluralLabel: 'handfuls' },
+  'turmeric':               { grams: 3,   unitLabel: 'tsp',                 pluralLabel: 'tsp' },
+  'cinnamon':               { grams: 2.6, unitLabel: 'tsp',                 pluralLabel: 'tsp' },
+  'black pepper':           { grams: 0.3, unitLabel: 'pinch',               pluralLabel: 'pinches' },
+  'salt':                   { grams: 0.4, unitLabel: 'pinch',               pluralLabel: 'pinches' },
+  'ginger':                 { grams: 5,   unitLabel: 'tsp, grated',         pluralLabel: 'tsp, grated' },
+  'garlic':                 { grams: 3,   unitLabel: 'clove',               pluralLabel: 'cloves' },
+  'onion':                  { grams: 110, unitLabel: 'medium onion',        pluralLabel: 'medium onions' },
+  'red onion':              { grams: 110, unitLabel: 'medium onion',        pluralLabel: 'medium onions' },
+  'rolled oats':            { grams: 80,  unitLabel: 'cup, dry',            pluralLabel: 'cups, dry' },
+  'pasta':                  { grams: 140, unitLabel: 'cup, cooked',         pluralLabel: 'cups, cooked' },
+  'noodles':                { grams: 160, unitLabel: 'cup, cooked',         pluralLabel: 'cups, cooked' },
+  'bread':                  { grams: 30,  unitLabel: 'slice',               pluralLabel: 'slices' },
+  'sourdough':              { grams: 40,  unitLabel: 'slice',               pluralLabel: 'slices' },
+  'tofu':                   { grams: 120, unitLabel: 'serving',             pluralLabel: 'servings' },
+  'tempeh':                 { grams: 100, unitLabel: 'serving',             pluralLabel: 'servings' },
+  'feta':                   { grams: 30,  unitLabel: 'serving',             pluralLabel: 'servings' },
+  'parmesan':               { grams: 10,  unitLabel: 'tbsp, grated',        pluralLabel: 'tbsp, grated' },
+  'yoghurt':                { grams: 150, unitLabel: 'pot',                 pluralLabel: 'pots' },
+  'yogurt':                 { grams: 150, unitLabel: 'pot',                 pluralLabel: 'pots' },
+  'hemp seeds':             { grams: 10,  unitLabel: 'tbsp',                pluralLabel: 'tbsp' },
+  'sunflower seeds':        { grams: 28,  unitLabel: 'handful',             pluralLabel: 'handfuls' },
+  'cashews':                { grams: 28,  unitLabel: 'handful',             pluralLabel: 'handfuls' },
+  'hazelnuts':              { grams: 28,  unitLabel: 'handful',             pluralLabel: 'handfuls' },
+  'brazil nuts':            { grams: 5,   unitLabel: 'nut',                 pluralLabel: 'nuts' },
+  'protein powder':         { grams: 30,  unitLabel: 'scoop',               pluralLabel: 'scoops' },
+});
+
 const GENERIC: ServingInfo = { grams: 100, unitLabel: 'serving', pluralLabel: 'servings' };
+
+// Notion's serving_other often already contains a count ("1 medium banana").
+// The UI adds its own count, which produced "1 1 medium banana". Strip any
+// leading number/fraction so the label is just the unit ("medium banana").
+export function cleanServingLabel(label: string): string {
+  return String(label)
+    .trim()
+    .replace(/^(\d+(\s+\d+\/\d+)?|\d+\/\d+|\d*\.\d+|[½⅓⅔¼¾]|a|an|one)\s*(x\s*)?/i, '')
+    .trim() || String(label).trim();
+}
+
+function pluralize(label: string): string {
+  // pluralise the first noun-ish word before a comma: "medium banana" → "medium bananas"
+  const [head, ...rest] = label.split(',');
+  const words = head.trim().split(' ');
+  const last = words[words.length - 1];
+  if (!last || /s$/i.test(last) || /^(tbsp|tsp|g|ml)$/i.test(last)) return label;
+  words[words.length - 1] = /(ch|sh|x|o)$/i.test(last) ? `${last}es` : /[^aeiou]y$/i.test(last) ? `${last.slice(0, -1)}ies` : `${last}s`;
+  return [words.join(' '), ...rest].join(',');
+}
+
+// Longest dictionary key contained in the name ("browned butter" → "butter",
+// "apples chopped" → "apple"), so short keys don't hijack longer foods.
+export function findServingKey(name: string): string | null {
+  const key = name.trim().toLowerCase();
+  if (COMMON_SERVINGS[key]) return key;
+  let best: string | null = null;
+  for (const k of Object.keys(COMMON_SERVINGS)) {
+    const re = new RegExp(`(^|\\b)${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(s|es)?(\\b|$)`);
+    if (re.test(key) && (!best || k.length > best.length)) best = k;
+  }
+  return best;
+}
 
 // pantryHint: real curation from your Notion pantry (serving_grams / serving_other),
 // which always wins over the built-in dictionary when present.
 export function resolveServing(name: string, pantryHint?: { grams?: number | null; label?: string | null }): ServingInfo {
   if (pantryHint?.label) {
-    return { grams: pantryHint.grams || 100, unitLabel: pantryHint.label, pluralLabel: pantryHint.label };
+    const unit = cleanServingLabel(pantryHint.label);
+    return { grams: pantryHint.grams || 100, unitLabel: unit, pluralLabel: pluralize(unit) };
   }
-  const key = name.trim().toLowerCase();
-  if (COMMON_SERVINGS[key]) return COMMON_SERVINGS[key];
-  const match = Object.keys(COMMON_SERVINGS).find((k) => key.includes(k) || k.includes(key));
+  const match = findServingKey(name);
   if (match) return COMMON_SERVINGS[match];
   return pantryHint?.grams ? { ...GENERIC, grams: pantryHint.grams } : GENERIC;
 }
