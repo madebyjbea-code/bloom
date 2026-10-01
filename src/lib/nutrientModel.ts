@@ -108,6 +108,37 @@ export function speedOf(m: MicroDef): Speed {
 }
 export const SPEED_LABEL: Record<Speed, string> = { days: 'fades in days', weeks: 'fades over weeks', months: 'stored for months' };
 
+// Fade rate from the half-life: share of a single day's intake the body
+// loses per day / week / month if nothing new comes in (first-order decay:
+// remaining = 0.5 ^ (t / halfLife)). Same maths the stores bars use.
+export type FadeRate = {
+  perDay: number; perWeek: number; perMonth: number;   // % lost, 0–100
+  left: { day: number; week: number; month: number };  // % still counted
+  short: string;                                      // "−5% / day"
+  unit: 'day' | 'week' | 'month';
+};
+export function fadeRate(halfLifeDays: number): FadeRate {
+  const keep = (t: number) => Math.pow(0.5, t / halfLifeDays) * 100;
+  const left = { day: keep(1), week: keep(7), month: keep(30) };
+  const perDay = 100 - left.day, perWeek = 100 - left.week, perMonth = 100 - left.month;
+  const fmt = (v: number) => (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10);
+  // Pick the unit where the number reads naturally (roughly 3–60 %)
+  const unit: FadeRate['unit'] = perDay >= 3 ? 'day' : perWeek >= 3 ? 'week' : 'month';
+  const val = unit === 'day' ? perDay : unit === 'week' ? perWeek : perMonth;
+  return {
+    perDay, perWeek, perMonth,
+    left: { day: Math.round(left.day), week: Math.round(left.week), month: Math.round(left.month) },
+    short: `−${fmt(val)}% / ${unit}`,
+    unit,
+  };
+}
+export function halfLifeText(d: number): string {
+  if (d < 7) return `${d} day${d > 1 ? 's' : ''}`;
+  if (d < 60) return `${Math.round(d / 7)} week${Math.round(d / 7) > 1 ? 's' : ''}`;
+  if (d < 365) return `${Math.round(d / 30)} months`;
+  return 'a year+';
+}
+
 // ── 2. Free vs natural sugar ────────────────────────────────────────────────
 // WHO: free sugars = sugars added to foods + sugars naturally in honey,
 // syrups, fruit juices and juice concentrates. Sugars inside intact fruit,
@@ -121,11 +152,14 @@ export type SugarForm = 'intact' | 'free';
 
 const FREE_PREP_RE = /\b(mash(ed)?|pur[eé]e(d)?|blend(ed)?|juic(e|ed)|smoothie|paste|syrup|concentrate|nectar|coulis|compote)\b/i;
 const ADDED_RE = /\b(sugar|honey|syrup|agave|jam|marmalade|treacle|molasses|chocolate|candy|sweets|cake|cookies?|biscuits?|brownies?|muffins?|pastry|pastries|croissant|doughnut|donut|ice cream|soda|cola|lemonade|energy drink|ketchup|granola|cereal|flavou?red|sweetened|dessert|pudding|custard|nutella|spread|sauce|juice|smoothie|stroopwafel|hagelslag|speculaas|pancake syrup)\b/i;
+const VEG_PASTE_RE = /\b(tomato(es)?|potato(es)?|garlic|ginger|curry|chil(l)?i|miso|sesame|tahini|pesto|vegetable|veg|cauliflower|pumpkin|squash|swede|turnip|parsnip|celeriac|avocado|bean|chickpea|pea|lentil|olive|anchov(y|ies)|harissa|wasabi|horseradish)\b/i;
 const UNSWEETENED_RE = /\b(unsweetened|no added sugar|plain|natural)\b/i;
 
 export function classifySugar(name: string, prep: string[] = [], quality?: string | null): { form: SugarForm; reason: string } {
   const text = `${name} ${prep.join(' ')}`.toLowerCase();
-  if (FREE_PREP_RE.test(text)) return { form: 'free', reason: 'puréed, blended or juiced — sugars are released from the fruit' };
+  // Puréed or mashed VEGETABLES (tomato paste, mashed potato, garlic paste)
+  // don't count — the free-sugar rule is about fruit, honey and syrups.
+  if (FREE_PREP_RE.test(text) && !VEG_PASTE_RE.test(text)) return { form: 'free', reason: 'puréed, blended or juiced — sugars are released from the fruit' };
   if (ADDED_RE.test(text) && !UNSWEETENED_RE.test(text)) return { form: 'free', reason: 'added or free sugar' };
   if (quality === 'processed') return { form: 'free', reason: 'processed foods usually contain added sugar' };
   return { form: 'intact', reason: 'inside whole fruit, veg, grains or plain dairy' };

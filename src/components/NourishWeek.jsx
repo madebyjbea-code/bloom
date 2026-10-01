@@ -7,7 +7,7 @@
 
 import { useMemo, useState } from 'react';
 import {
-  computeStores, weekSummary, weekCounts, weekPattern, GROUP_LABELS, SPEED_LABEL,
+  computeStores, weekSummary, weekCounts, weekPattern, GROUP_LABELS, fadeRate, halfLifeText,
 } from '../lib/nutrientModel';
 import { rankRecipesForGaps, sourcesFor } from '../lib/gapRecipes';
 import { NUTRIENT_FOOD_SUGGESTIONS } from '../lib/nutrition';
@@ -22,6 +22,35 @@ const Q = {
   mixed:     { color: '#d9b44a', label: 'mixed' },
   processed: { color: '#8f3f22', label: 'processed' },
 };
+
+// How fast one day's intake stops counting — % lost per day/week/month and
+// what's left after a day, a week and a month with nothing new coming in.
+function FadeDetail({ halfLifeDays }) {
+  const f = fadeRate(halfLifeDays);
+  const fmt = (v) => (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10);
+  const rows = [['after 1 day', f.left.day], ['after 1 week', f.left.week], ['after 1 month', f.left.month]];
+  return (
+    <div style={{ margin: '2px 0 4px' }}>
+      <div>
+        Loses about <strong>{fmt(f.perDay)}% a day</strong> · {fmt(f.perWeek)}% a week · {fmt(f.perMonth)}% a month.
+        Half is gone in roughly {halfLifeText(halfLifeDays)}.
+      </div>
+      <div style={{ fontSize: 10.5, color: '#888', margin: '6px 0 4px' }}>If you ate nothing new with it, what one good day still counts for:</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {rows.map(([l, v]) => (
+          <div key={l} style={{ display: 'grid', gridTemplateColumns: '82px 1fr 34px', alignItems: 'center', gap: 8, fontSize: 10.5 }}>
+            <span style={{ color: '#777' }}>{l}</span>
+            <div style={{ height: 5, background: '#efece6', borderRadius: 99, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${v}%`, background: '#8aad8a', borderRadius: 99 }} />
+            </div>
+            <span style={{ textAlign: 'right', fontWeight: 700, color: '#4a4a42' }}>{v}%</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 10, color: '#aaa', marginTop: 5 }}>Approximate, from published half-lives — real rates vary with your stores, body size and health.</div>
+    </div>
+  );
+}
 
 function Dot({ slot }) {
   const base = { width: 16, height: 16, borderRadius: 99, boxSizing: 'border-box', flexShrink: 0 };
@@ -143,7 +172,7 @@ export default function NourishWeek({ foodsByDate, mealsByDate, todayKey, target
           Each bar is a weighted average of what you’ve eaten recently. Newer days count more, and how fast older days stop counting depends on how long your body holds that nutrient.
         </p>
         <p style={{ fontSize: 11.5, color: '#888', lineHeight: 1.5, margin: '0 0 14px' }}>
-          Days you didn’t log are skipped, so forgetting to log never drains a bar.{loggedDays > 0 && loggedDays < 3 ? ' Early estimate — it gets steadier after a few logged days.' : ''}
+          The small number under each bar is how fast it fades: the share of what you ate that your body uses up or clears per day (or per week, for slow ones). Days you didn’t log are skipped, so forgetting to log never drains a bar.{loggedDays > 0 && loggedDays < 3 ? ' Early estimate — it gets steadier after a few logged days.' : ''}
         </p>
         {loggedDays === 0 ? (
           <p style={{ fontSize: 12, color: '#bbb', fontStyle: 'italic', margin: 0 }}>Log meals with foods and your stores will appear here.</p>
@@ -166,13 +195,14 @@ export default function NourishWeek({ foodsByDate, mealsByDate, todayKey, target
                     <div style={{ height: 6, background: s.level == null ? '#f3f1ed' : low ? '#f5ebe4' : '#e9f1e9', borderRadius: 99, overflow: 'hidden' }}>
                       <div style={{ height: '100%', width: `${s.level || 0}%`, background: low ? '#c47a5a' : '#5a7a5a', borderRadius: 99 }} />
                     </div>
-                    <div style={{ fontSize: 10, color: '#999', marginTop: 2 }}>
-                      {s.level == null ? (s.limitedData ? 'rarely listed in food data' : 'no data yet') : SPEED_LABEL[s.speed]}
+                    <div style={{ fontSize: 10, color: '#999', marginTop: 2, display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+                      <span>{s.level == null ? (s.limitedData ? 'rarely listed in food data' : 'no data yet') : `fades ${fadeRate(s.halfLifeDays).short}`}</span>
+                      {s.level != null && <span style={{ color: '#bbb' }}>half in {halfLifeText(s.halfLifeDays)}</span>}
                     </div>
                     {open && (
                       <div style={{ marginTop: 6, padding: '9px 11px', background: '#fdfcfa', border: '1px solid #f0ece6', borderRadius: 10, fontSize: 11.5, color: '#555', lineHeight: 1.6 }}>
                         {s.note && <div>{s.note.charAt(0).toUpperCase() + s.note.slice(1)}.</div>}
-                        <div>Body holds it for roughly {s.halfLifeDays < 7 ? `${s.halfLifeDays} day${s.halfLifeDays > 1 ? 's' : ''}` : s.halfLifeDays < 60 ? `${Math.round(s.halfLifeDays / 7)} weeks` : `${Math.round(s.halfLifeDays / 30)} months`} (half-life, approx.).</div>
+                        <FadeDetail halfLifeDays={s.halfLifeDays} />
                         {s.lastTopUp && <div>Last good top-up: {new Date(`${s.lastTopUp}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' })}.</div>}
                         {(NUTRIENT_FOOD_SUGGESTIONS[s.key] || []).length > 0 && <div>Good sources: {NUTRIENT_FOOD_SUGGESTIONS[s.key].map((f) => f.name).join(', ')}.</div>}
                       </div>

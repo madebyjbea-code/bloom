@@ -202,10 +202,6 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
 
   // Takeout flow state
   const [isTakeout, setIsTakeout]         = useState(false);
-  const [takeoutCoverage, setTakeoutCoverage] = useState({
-    veg: false, protein: false, carbs: false, fats: false, hydration: false,
-  });
-  const [takeoutCuisine, setTakeoutCuisine] = useState(null);
 
   // ── v4: Today / This week, typed logging, meal summary, macro targets ─────
   const [view, setView]                   = useState('today');
@@ -297,8 +293,6 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
     setSearch('');
     setServingEditing(null);
     setIsTakeout(false);
-    setTakeoutCoverage({ veg: false, protein: false, carbs: false, fats: false, hydration: false });
-    setTakeoutCuisine(null);
   }
 
   function cancelLog() {
@@ -308,8 +302,6 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
     setSearch('');
     setPickCategory(null);
     setIsTakeout(false);
-    setTakeoutCoverage({ veg: false, protein: false, carbs: false, fats: false, hydration: false });
-    setTakeoutCuisine(null);
   }
 
   function pickMeal(key) {
@@ -344,19 +336,8 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
     setLogQuality(opt.key);
     // Skipped = nothing to log, close flow
     if (opt.key === 'skipped') { setLogStep(null); toast(`⏭ ${logMealSlot} skipped`); return; }
-    if (isTakeout) {
-      // Pre-fill coverage based on quality as a sensible default
-      setTakeoutCoverage({
-        veg:      opt.key === 'whole' || opt.key === 'mixed',
-        protein:  opt.key === 'whole' || opt.key === 'mixed',
-        carbs:    opt.key !== 'skipped',
-        fats:     opt.key === 'whole',
-        hydration: false,
-      });
-      setLogStep('takeout');
-    } else {
-      setLogStep('foods');
-    }
+    if (isTakeout) setFoodMode('type');
+    setLogStep('foods');
   }
 
   function toggleFoodSelection(food, catKey) {
@@ -414,8 +395,9 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
   }
 
   // Typed meal → one entry per ingredient, nutrients fetched in parallel
-  async function confirmTyped(items, title) {
+  async function confirmTyped(items, title, meta = {}) {
     if (!items.length) return;
+    const takeout = isTakeout || !!meta.takeout;
     setFetchingNutrients(true);
     const results = await Promise.all(items.map(it => getFoodNutrients(it.name, it.grams)));
     const stamp = Date.now();
@@ -433,13 +415,15 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
       sugarForm: it.sugarForm,
       sugarReason: it.sugarReason,
       dish: title || null,
+      ...(meta.kind === 'recipe' ? { recipe: { made: meta.servingsMade, eaten: meta.servingsEaten } } : {}),
+      ...(takeout ? { isTakeout: true, takeoutQuality: logQuality, portion: meta.portion || null } : {}),
     }));
     setFetchingNutrients(false);
     setTodayFoods(prev => [...prev, ...newEntries]);
     const newCats = newEntries.map(e => e.category).filter(Boolean);
     setSelectedCategories(prev => [...new Set([...prev, ...newCats])]);
     setLastMealSummary({ title, mealLabel: LOG_MEAL_OPTIONS.find(m => m.key === logMealSlot)?.label || 'This meal', entries: newEntries, quality: logQuality });
-    toast(`🍽️ ${title ? `${title} · ` : ''}${newEntries.length} item${newEntries.length > 1 ? 's' : ''} logged`);
+    toast(takeout ? `🥡 ${title || 'Takeout'} logged` : meta.kind === 'recipe' ? `🍲 ${title} logged` : `🍽️ ${title ? `${title} · ` : ''}${newEntries.length} item${newEntries.length > 1 ? 's' : ''} logged`);
     cancelLog();
   }
 
@@ -453,58 +437,21 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
     });
   }
 
-  // Takeout coverage toggles map to synthetic food entries so macro/coverage display works
-  const TAKEOUT_COVERAGE_MAP = {
-    veg:       { name: 'Mixed vegetables (takeout)',    category: 'cruciferous'    },
-    protein:   { name: 'Protein source (takeout)',      category: 'meat_fish_eggs' },
-    carbs:     { name: 'Rice or noodles (takeout)',     category: 'grains_starchy' },
-    fats:      { name: 'Cooking oil/fats (takeout)',    category: 'healthy_fats'   },
-    hydration: { name: 'Water with meal (takeout)',     category: 'hydration'      },
-  };
-
-  function confirmTakeout() {
-    const cuisineLabel = takeoutCuisine ? ` · ${takeoutCuisine}` : '';
-    const newEntries = Object.entries(takeoutCoverage)
-      .filter(([, checked]) => checked)
-      .map(([key]) => {
-        const map = TAKEOUT_COVERAGE_MAP[key];
-        return {
-          id: `${Date.now()}-takeout-${key}`,
-          name: map.name,
-          category: map.category,
-          meal: logMealSlot,
-          grams: 100,
-          servingLabel: `1 serving${cuisineLabel}`,
-          nutrients: [],
-          source: 'none',
-          isTakeout: true,
-          takeoutQuality: logQuality,
-          cuisine: takeoutCuisine,
-        };
-      });
-
-    if (newEntries.length === 0) {
-      // Log just the quality with a placeholder entry so the meal slot is marked
-      newEntries.push({
-        id: `${Date.now()}-takeout-base`,
-        name: `Takeout${cuisineLabel}`,
-        category: null,
-        meal: logMealSlot,
-        grams: 0,
-        servingLabel: `1 meal${cuisineLabel}`,
-        nutrients: [],
-        source: 'none',
-        isTakeout: true,
-        takeoutQuality: logQuality,
-        cuisine: takeoutCuisine,
-      });
-    }
-
-    setTodayFoods(prev => [...prev, ...newEntries]);
-    const newCats = newEntries.map(e => e.category).filter(Boolean);
-    setSelectedCategories(prev => [...new Set([...prev, ...newCats])]);
-    const coveredCount = Object.values(takeoutCoverage).filter(Boolean).length;
-    toast(`🥡 Takeout logged${cuisineLabel} · ${coveredCount} coverage tick${coveredCount !== 1 ? 's' : ''}`);
+  // "Don't remember" — mark the slot as takeout without details
+  function quickTakeout() {
+    setTodayFoods(prev => [...prev, {
+      id: `${Date.now()}-takeout-base`,
+      name: 'Takeout',
+      category: null,
+      meal: logMealSlot,
+      grams: 0,
+      servingLabel: '1 meal · no details',
+      nutrients: [],
+      source: 'none',
+      isTakeout: true,
+      takeoutQuality: logQuality,
+    }]);
+    toast('🥡 Takeout logged');
     cancelLog();
   }
 
@@ -768,11 +715,9 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
           <>
             {/* Progress indicator */}
             {(() => {
-              const steps = isTakeout
-                ? ['meal','quality','takeout']
-                : ['meal','quality','foods'];
+              const steps = ['meal','quality','foods'];
               const labels = isTakeout
-                ? ['Meal','Quality','Coverage']
+                ? ['Meal','Quality','What you had']
                 : ['Meal','Quality','What you ate'];
               return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 22 }}>
@@ -829,7 +774,7 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
                       <div>
                         <div style={{ fontSize: 13, fontWeight: 600, color: opt.color }}>{opt.label}</div>
                         {opt.coins > 0 && <div style={{ fontSize: 10, color: '#8aad8a', marginTop: 1 }}>+{opt.coins} 🪙</div>}
-                        {isTakeout && opt.key !== 'skipped' && <div style={{ fontSize: 10, color: '#c4880a', marginTop: 1 }}>→ quick coverage check</div>}
+                        {isTakeout && opt.key !== 'skipped' && <div style={{ fontSize: 10, color: '#c4880a', marginTop: 1 }}>→ describe the dish</div>}
                       </div>
                     </button>
                   ))}
@@ -838,83 +783,29 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
               </div>
             )}
 
-            {/* STEP 3 (takeout): Coverage check */}
-            {logStep === 'takeout' && (() => {
-              const qualityOpt = QUALITY_OPTIONS.find(o => o.key === logQuality);
-              const CUISINES = ['🍕 Italian','🍜 Asian','🌮 Mexican','🥙 Middle Eastern','🍱 Japanese','🍛 Indian','🐟 Fish & chips','🥗 Salad bar','🍔 Burger','🍣 Sushi','🥘 Other'];
-              const coverageItems = [
-                { key: 'veg',       emoji: '🥦', label: 'Vegetables',     sub: 'any veg side, salad, or mixed in' },
-                { key: 'protein',   emoji: '🥩', label: 'Protein source',  sub: 'meat, fish, eggs, beans, tofu' },
-                { key: 'carbs',     emoji: '🌾', label: 'Complex carbs',   sub: 'rice, noodles, bread, potato' },
-                { key: 'fats',      emoji: '🫒', label: 'Healthy fats',    sub: 'olive oil dressing, avocado, nuts' },
-                { key: 'hydration', emoji: '💧', label: 'Water with meal', sub: 'had water or herbal tea' },
-              ];
-              return (
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontSize: 18 }}>🥡</span>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>
-                      Takeout · {logMealSlot.charAt(0).toUpperCase() + logMealSlot.slice(1)}
-                      {qualityOpt && <span style={{ marginLeft: 6, fontSize: 11, color: qualityOpt.color }}>{qualityOpt.emoji} {qualityOpt.label}</span>}
-                    </div>
-                  </div>
-                  <p style={{ fontSize: 11, color: '#aaa', marginBottom: 16 }}>What did it cover? Tap what applied — pre-filled based on your quality rating.</p>
-
-                  {/* Coverage toggles */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
-                    {coverageItems.map(item => {
-                      const checked = takeoutCoverage[item.key];
-                      return (
-                        <button key={item.key}
-                          onClick={() => setTakeoutCoverage(prev => ({ ...prev, [item.key]: !prev[item.key] }))}
-                          style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', borderRadius: 13, border: `1.5px solid ${checked ? '#8aad8a' : '#e8e4de'}`, background: checked ? '#f0f7f0' : 'white', cursor: 'pointer', fontFamily: 'DM Sans,sans-serif', textAlign: 'left', transition: 'all 0.15s' }}>
-                          <div style={{ width: 28, height: 28, borderRadius: '50%', border: `2px solid ${checked ? '#8aad8a' : '#e8e4de'}`, background: checked ? '#8aad8a' : 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0, transition: 'all 0.15s' }}>
-                            {checked ? <span style={{ color: 'white', fontWeight: 700, fontSize: 12 }}>✓</span> : <span style={{ fontSize: 15 }}>{item.emoji}</span>}
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: checked ? '#3a6a3a' : '#2a2a2a' }}>{item.label}</div>
-                            <div style={{ fontSize: 11, color: '#aaa', marginTop: 1 }}>{item.sub}</div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Cuisine chips */}
-                  <div style={{ marginBottom: 18 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: '#888', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.8px' }}>Cuisine (optional)</div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {CUISINES.map(c => (
-                        <button key={c} onClick={() => setTakeoutCuisine(takeoutCuisine === c ? null : c)}
-                          style={{ padding: '6px 12px', borderRadius: 99, border: `1.5px solid ${takeoutCuisine === c ? '#c4880a' : '#e8e4de'}`, background: takeoutCuisine === c ? '#fdf8ed' : 'white', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: takeoutCuisine === c ? '#9a6810' : '#555', fontFamily: 'DM Sans,sans-serif', transition: 'all 0.15s' }}>
-                          {c}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <button onClick={confirmTakeout}
-                    style={{ width: '100%', padding: '13px', background: '#5a7a5a', color: 'white', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
-                    Log takeout →
-                  </button>
-                  <button onClick={() => setLogStep('quality')} style={{ marginTop: 10, fontSize: 11, color: '#aaa', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'DM Sans,sans-serif' }}>← Back</button>
-                </div>
-              );
-            })()}
-
             {/* STEP 3: What you ate — multi-select foods */}
             {logStep === 'foods' && (
               <div>
-                <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+                {isTakeout && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <span style={{ fontSize: 18 }}>🥡</span>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>
+                      Takeout · {logMealSlot.charAt(0).toUpperCase() + logMealSlot.slice(1)}
+                      {(() => { const q = QUALITY_OPTIONS.find(o => o.key === logQuality); return q ? <span style={{ marginLeft: 6, fontSize: 11, color: q.color }}>{q.emoji} {q.label}</span> : null; })()}
+                    </div>
+                  </div>
+                )}
+                {!isTakeout && <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
                   {[['type', '✍️ Type it'], ['pick', '📋 Pick from list']].map(([k, l]) => (
                     <button key={k} onClick={() => setFoodMode(k)}
                       style={{ padding: '7px 14px', borderRadius: 99, border: `1.5px solid ${foodMode === k ? '#5a7a5a' : '#e8e4de'}`, background: foodMode === k ? '#5a7a5a' : 'white', color: foodMode === k ? 'white' : '#555', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
                       {l}
                     </button>
                   ))}
-                </div>
-                {foodMode === 'type' ? (
-                  <TypeMealPanel quality={logQuality} busy={fetchingNutrients} onConfirm={confirmTyped} onBack={() => setLogStep('quality')} />
+                </div>}
+                {foodMode === 'type' || isTakeout ? (
+                  <TypeMealPanel key={isTakeout ? 'takeout' : 'home'} takeout={isTakeout} onQuickTakeout={quickTakeout}
+                    quality={logQuality} busy={fetchingNutrients} onConfirm={confirmTyped} onBack={() => setLogStep('quality')} />
                 ) : (<>
                 <div style={{ fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 10 }}>
                   What did you eat? <span style={{ fontWeight: 400, color: '#aaa' }}>Select everything in this meal</span>

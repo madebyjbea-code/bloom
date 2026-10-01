@@ -25,6 +25,17 @@ export type ParsedItem = {
   sugarForm: SugarForm;
   sugarReason: string;
   question?: { prompt: string; options: string[] }; // e.g. which milk?
+  estimated?: boolean;   // no amount was given — we guessed, worth a check
+};
+
+export type MealKind = 'single' | 'recipe' | 'takeout';
+export type ParsedMeal = {
+  title: string | null;
+  items: ParsedItem[];
+  kind: MealKind;
+  servingsMade: number | null;    // recipe: how many servings the whole pot made
+  servingsEaten: number | null;   // recipe: how many of those you ate
+  servingsGuessed?: boolean;      // servingsMade wasn't stated — estimated from the ingredients
 };
 
 const WORD_NUM: Record<string, number> = {
@@ -76,7 +87,7 @@ const G_PER_CUP: [RegExp, number][] = [
   [/yog(h)?urt|skyr|quark/, 245], [/chia/, 170], [/flax|linseed/, 150], [/seed/, 140], [/almond|cashew|walnut|hazelnut|peanut|nut/, 140],
   [/butter|ghee/, 227], [/oil/, 218], [/cream/, 240], [/cheese/, 113], [/berr/, 148], [/spinach|rocket|lettuce|greens|kale/, 30],
   [/lentil|bean|chickpea/, 180], [/pasta|noodle/, 140], [/apple|pear|fruit/, 125], [/raisin|date|dried/, 150],
-  [/granola|muesli/, 110], [/cocoa|cacao/, 86], [/turmeric|cinnamon|spice|pepper|cumin|paprika/, 110],
+  [/paste|pur[ée]e|passata|tomato sauce|pesto/, 262], [/granola|muesli/, 110], [/cocoa|cacao/, 86], [/turmeric|cinnamon|spice|pepper|cumin|paprika/, 110],
 ];
 
 // grams per single item / slice when counted
@@ -94,13 +105,95 @@ const ITEM_GRAMS: [RegExp, { g: number; unit: string; plural: string }][] = [
 // words that describe preparation rather than the food
 const PREP_WORDS = ['chopped', 'sliced', 'diced', 'grated', 'minced', 'fresh', 'raw', 'cooked', 'roasted', 'toasted', 'steamed',
   'boiled', 'fried', 'baked', 'grilled', 'browned', 'melted', 'mashed', 'pureed', 'puréed', 'blended', 'juiced', 'soaked',
-  'frozen', 'ripe', 'large', 'small', 'medium', 'whole', 'halved', 'crushed', 'ground', 'shredded', 'peeled', 'warm', 'cold', 'hot', 'heaped', 'level', 'rounded'];
+  'frozen', 'ripe', 'large', 'small', 'medium', 'whole', 'halved', 'crushed', 'ground', 'shredded', 'peeled', 'warm', 'cold', 'hot', 'heaped', 'level', 'rounded',
+  'stirred', 'mixed', 'added', 'tossed', 'thrown', 'sauteed', 'sautéed', 'caramelised', 'caramelized', 'finely', 'roughly', 'thinly', 'big'];
+
+// size words scale a counted item ("1 small onion" ≈ 70 g vs a medium 110 g)
+const SIZE_FACTOR: Record<string, number> = { small: 0.65, medium: 1, large: 1.4, big: 1.4 };
+
+// Grains & pasta weighed in a recipe are almost always weighed DRY — look up
+// the raw values or the nutrients come out ~3× too low.
+const DRY_LOOKUP: [RegExp, string][] = [
+  [/brown rice/, 'rice brown long-grain raw'],
+  [/risotto|arborio|carnaroli|paella rice|sushi rice|pudding rice/, 'rice white medium-grain raw'],
+  [/basmati|jasmine|\brice\b/, 'rice white long-grain raw'],
+  [/rice noodle/, 'rice noodles dry'],
+  [/egg noodle/, 'egg noodles dry'],
+  [/spaghetti|penne|pasta|macaroni|fusilli|linguine|tagliatelle|orzo|lasagn|noodle/, 'pasta dry enriched'],
+  [/quinoa/, 'quinoa uncooked'],
+  [/red lentil|green lentil|brown lentil|lentil/, 'lentils raw'],
+  [/couscous/, 'couscous dry'],
+  [/bulgur/, 'bulgur dry'],
+  [/barley/, 'barley pearled raw'],
+];
+const DRY_GRAMS_PER_SERVING = 80; // typical dry portion of rice / pasta / grains
+
+// broth & stock: point at the home-prepared USDA entries
+const BROTH_LOOKUP: [RegExp, string][] = [
+  [/beef (bone )?(broth|stock)/, 'soup stock beef home-prepared'],
+  [/(vegetable|veggie|veg) (broth|stock)/, 'soup vegetable broth ready to serve'],
+  [/fish (broth|stock)/, 'soup stock fish home-prepared'],
+  [/(broth|stock|bouillon)/, 'soup stock chicken home-prepared'],
+];
+
+// common misspellings / split words we've seen typed
+const TYPO_FIXES: [RegExp, string][] = [
+  [/\btea\s+spoons?\b/gi, 'teaspoons'], [/\btable\s+spoons?\b/gi, 'tablespoons'],
+  [/\bgloves?\s+(of\s+)?garlic/gi, 'cloves of garlic'], [/\bparm(e|a|i)s(e|a)?an\b|\bparmesean\b|\bparmigiano( reggiano)?\b/gi, 'parmesan'],
+  [/\btumeric\b/gi, 'turmeric'], [/\bbrocolli\b|\bbroccolli\b/gi, 'broccoli'], [/\bzucchinni\b/gi, 'zucchini'],
+  [/\blitre?s?\b|\bliters?\b/gi, 'l'],
+];
+
+const WORD_NUMS = '(\\d+(?:\\.\\d+)?|\\d+\\/\\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|half|a half|a quarter|a third)';
+function numOf(s: string): number | null {
+  const t = s.trim().toLowerCase();
+  if (/^\d+(\.\d+)?$/.test(t)) return parseFloat(t);
+  if (/^\d+\/\d+$/.test(t)) { const [a, b] = t.split('/').map(Number); return b ? a / b : null; }
+  const words: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, half: 0.5, 'a half': 0.5, 'a quarter': 0.25, 'a third': 1 / 3 };
+  return words[t] ?? null;
+}
+
+// Pulls "made 4 servings" / "serves 4" / "I ate 1 serving" / "had half of it"
+// out of the text so the ingredient split doesn't see them.
+export function extractServings(text: string): { text: string; made: number | null; eaten: number | null; recipeVerb: boolean } {
+  let t = text;
+  let made: number | null = null, eaten: number | null = null;
+  const N = WORD_NUMS;
+  const madeRes = [
+    new RegExp(`[,;(]?\\s*(?:and\\s+)?(?:it\\s+|this\\s+)?(?:makes?|made|serves?|served|yields?|yielded|enough for|for)\\s+(?:about\\s+|around\\s+|roughly\\s+)?${N}\\s*(?:servings?|portions?|people|persons|bowls?|plates?|meals?)\\b\\)?`, 'i'),
+    new RegExp(`[,;(]?\\s*${N}\\s*(?:servings?|portions?)\\s+(?:total|in total|altogether|overall)\\)?`, 'i'),
+    new RegExp(`\\(\\s*${N}\\s*(?:servings?|portions?)\\s*\\)`, 'i'),
+  ];
+  for (const re of madeRes) {
+    const m = t.match(re);
+    if (m) { made = numOf(m[1]); t = t.replace(m[0], ' '); break; }
+  }
+  const eatenRes = [
+    new RegExp(`[,;]?\\s*(?:and\\s+)?(?:i\\s+|we\\s+)?(?:ate|had|eaten|eat|finished)\\s+(?:about\\s+|around\\s+|roughly\\s+|just\\s+)?${N}\\s*(?:servings?|portions?|bowls?|plates?|helpings?)(?:\\s+of\\s+it)?\\b`, 'i'),
+    new RegExp(`[,;]?\\s*(?:and\\s+)?(?:i\\s+|we\\s+)?(?:ate|had|eaten|finished)\\s+(half|a half|a quarter|a third|one third|two thirds)(?:\\s+of\\s+(?:it|that|the (?:pot|pan|dish|recipe|batch)))?\\b`, 'i'),
+  ];
+  for (const re of eatenRes) {
+    const m = t.match(re);
+    if (m) {
+      const v = m[1].toLowerCase() === 'one third' ? 1 / 3 : m[1].toLowerCase() === 'two thirds' ? 2 / 3 : numOf(m[1]);
+      eaten = v;
+      // a fraction "of it" means of the whole pot
+      if (v != null && v < 1 && !/servings?|portions?|bowls?|plates?|helpings?/i.test(m[0])) { eaten = v; if (made == null) made = 1; }
+      t = t.replace(m[0], ' ');
+      break;
+    }
+  }
+  const recipeVerb = /^\s*(?:i\s+|we\s+)?(?:made|cooked|baked|prepared|prepped|meal[- ]prepped|whipped up|threw together|batch[- ]cooked)\b/i.test(t);
+  t = t.replace(/^\s*(?:i\s+|we\s+)?(?:made|cooked|baked|prepared|prepped|meal[- ]prepped|whipped up|threw together|batch[- ]cooked)\s+(?:a\s+|an\s+|some\s+|my\s+|our\s+)?/i, '');
+  return { text: t.replace(/\s+/g, ' ').replace(/[,;]\s*$/, '').trim(), made, eaten, recipeVerb };
+}
 
 // names that need a nudge before they hit USDA
 const NAME_ALIASES: [RegExp, string][] = [
   [/^(dried |rolled |porridge |old[- ]fashioned )?oats?( flakes)?$|^oatmeal$|^porridge oats$/, 'rolled oats'],
   [/^apples?$/, 'apple'], [/^bananas?$/, 'banana'], [/^eggs?$/, 'egg'], [/^dates?$/, 'dates'],
   [/^black pepper$|^pepper$/, 'black pepper'], [/^yogh?urt$/, 'yoghurt'],
+  [/^salmon fillets?$/, 'salmon'], [/^chicken breasts?$/, 'chicken breast'], [/^tomato paste$|^tomato pur[ée]e$/, 'tomato paste'],
 ];
 
 // prep words worth keeping in the visible name (they change the food)
@@ -162,6 +255,7 @@ function cleanName(raw: string): { name: string; prep: string[] } {
     if (PREP_WORDS.includes(w)) { prep.push(w); return false; }
     return !['of', 'the', 'some', 'with'].includes(w);
   });
+  while (words.length > 1 && ['in', 'into', 'it', 'through', 'on', 'top'].includes(words[words.length - 1])) words.pop();
   let name = words.join(' ').trim();
   for (const [re, to] of NAME_ALIASES) if (re.test(name)) { name = to; break; }
   // simple singular: "apples" → "apple" when the singular is a known food
@@ -177,7 +271,8 @@ function gramsFor(name: string, qty: number, unit: string): { grams: number; amo
 
   if (FIXED_GRAMS[unit] != null) {
     const g = qty * FIXED_GRAMS[unit];
-    const txt = unit === 'pinch' ? (qty === 1 ? 'a pinch' : `${q} pinches`) : `${q} ${unit}`;
+    const plural = qty > 1 && !['g', 'kg', 'oz', 'lb'].includes(unit) ? 's' : '';
+    const txt = unit === 'pinch' ? (qty === 1 ? 'a pinch' : `${q} pinches`) : `${q} ${unit}${plural}`;
     return { grams: g, amountText: txt };
   }
   if (ML_PER[unit] != null) {
@@ -212,10 +307,11 @@ function gramsFor(name: string, qty: number, unit: string): { grams: number; amo
 
 const MILK_RE = /^(milk|cow'?s milk)$/;
 
-export function parseMeal(text: string, quality?: string | null): { title: string | null; items: ParsedItem[] } {
-  let src = ` ${text
-    .replace(/(\d)([a-zA-Z])/g, '$1 $2')        // "200g" → "200 g"
-    .replace(/\s+/g, ' ').trim()} `;
+export function parseMeal(text: string, quality?: string | null): ParsedMeal {
+  let fixed = text.replace(/(\d)([a-zA-Z])/g, '$1 $2');   // "200g" → "200 g"
+  for (const [re, to] of TYPO_FIXES) fixed = fixed.replace(re, to);
+  const sv = extractServings(fixed.replace(/\s+/g, ' ').trim());
+  let src = ` ${sv.text} `;
   let title: string | null = null;
 
   // "Oatmeal with 2/3 cup oats, …" → title "Oatmeal"
@@ -232,11 +328,14 @@ export function parseMeal(text: string, quality?: string | null): { title: strin
   let work = src.toLowerCase();
   PROTECTED_AND.forEach((p, i) => { work = work.split(p).join(`__keep${i}__`); });
   const parts = work
-    .split(/,|;|\n|\band then\b|\band\b|\bplus\b|\bwith\b|\btopped with\b|\bon\b|\bover\b|&|\+/)
+    .split(/,|;|\n|\.\s|\.$|\band then\b|\band\b|\bplus\b|\bwith\b|\btopped with\b|\bon\b|\bover\b|&|\+/)
     .map((s) => s.replace(/__keep(\d+)__/g, (_, i) => PROTECTED_AND[Number(i)]).trim())
     .filter(Boolean);
 
   const items: ParsedItem[] = [];
+  // decided up-front so grains get dry lookups and no-amount items scale
+  const strongRecipe = sv.made != null || sv.recipeVerb || sv.eaten != null;
+  const isRecipe = strongRecipe || parts.length >= 6;
   for (const part of parts) {
     const tokens = part.split(' ').filter(Boolean);
     let { qty, used } = parseQuantity(tokens);
@@ -247,22 +346,47 @@ export function parseMeal(text: string, quality?: string | null): { title: strin
     const { name, prep } = cleanName(rest.join(' '));
     if (!name) continue;
 
+    // cooking water adds nothing — leave it out of recipes
+    if (isRecipe && /^(water|tap water|boiling water|hot water)$/.test(name)) continue;
+
     // No amount given: spices default to a pinch, everything else to 1 serving
+    let estimated = false;
     if (qty == null) {
       const key = findServingKey(name);
       qty = 1;
-      if (!unit && key && /pinch/.test(COMMON_SERVINGS[key].unitLabel)) unit = 'pinch';
+      estimated = true;
+      if (!unit && key && /pinch/.test(COMMON_SERVINGS[key].unitLabel)) { unit = 'pinch'; estimated = false; }
     }
-    const { grams, amountText } = gramsFor(name, qty, unit);
+    let { grams, amountText } = gramsFor(name, qty, unit);
+    // "1 small onion", "2 large eggs"
+    const size = prep.find((w) => SIZE_FACTOR[w] != null);
+    if (size && !unit && size !== 'medium') {
+      grams *= SIZE_FACTOR[size];
+      amountText = amountText.replace(/\bmedium\s+/, '');
+      amountText = amountText.replace(new RegExp(`^(${fmtQty(qty).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})\\s+`), `$1 ${size} `);
+    }
+    // what we send to USDA
+    let lookup = name;
+    const weighed = ['g', 'kg', 'oz', 'lb', 'cup'].includes(unit);
+    if (strongRecipe && weighed && !prep.includes('cooked')) {
+      const dry = DRY_LOOKUP.find(([re]) => re.test(name));
+      if (dry) lookup = dry[1];
+    }
+    const broth = BROTH_LOOKUP.find(([re]) => re.test(name));
+    if (broth) lookup = broth[1];
+    if (/^(beef mince|minced beef|ground beef|mince)$/.test(name)) lookup = 'beef ground raw';
+    if (unit === 'can' && !/canned/.test(lookup)) lookup = `${lookup} canned`;
+
     const sugar = classifySugar(name, prep, quality);
     const item: ParsedItem = {
-      name,
+      name: lookup,
       display: cap([...prep.filter((w) => SHOWN_PREP.includes(w)), name].join(' ')),
       qty, unit, amountText,
       grams: Math.max(0.1, Math.round(grams * 10) / 10),
       prep,
       sugarForm: sugar.form,
       sugarReason: sugar.reason,
+      ...(estimated ? { estimated: true } : {}),
     };
     if (MILK_RE.test(name)) {
       item.question = { prompt: 'Which milk?', options: ['Semi-skimmed milk', 'Whole milk', 'Skimmed milk', 'Oat milk', 'Soy milk', 'Almond milk'] };
@@ -271,7 +395,39 @@ export function parseMeal(text: string, quality?: string | null): { title: strin
     }
     items.push(item);
   }
-  return { title, items };
+
+  if (!isRecipe) return { title, items, kind: 'single', servingsMade: null, servingsEaten: null };
+
+  // How many servings did the pot make? Use what they said, else estimate:
+  // dry grains ÷ 80 g, else counted proteins (fillets, breasts), else weight.
+  let made = sv.made;
+  let guessed = false;
+  if (made == null) {
+    guessed = true;
+    const dryG = items.filter((i) => i.name !== i.display.toLowerCase() && DRY_LOOKUP.some(([, l]) => l === i.name)).reduce((s, i) => s + i.grams, 0);
+    const proteinCount = items.filter((i) => !i.unit && /salmon|chicken|fillet|breast|steak|chop|thigh|fish/.test(i.name)).reduce((s, i) => s + i.qty, 0);
+    const total = items.reduce((s, i) => s + i.grams, 0);
+    made = dryG >= 60 ? Math.round(dryG / DRY_GRAMS_PER_SERVING) : proteinCount >= 2 ? proteinCount : Math.round(total / 450);
+    made = Math.min(12, Math.max(1, made || 1));
+  }
+  if (guessed && made === 1 && !strongRecipe) return { title, items, kind: 'single', servingsMade: null, servingsEaten: null };
+
+  // An ingredient with no amount in a recipe ("parmesan grated in") is a
+  // whole-pot amount — scale the 1-serving guess up to the pot.
+  if (made > 1) {
+    for (const it of items) {
+      if (it.estimated && it.unit !== 'pinch') {
+        const r = rescaleItem(it, made);
+        it.qty = r.qty; it.grams = r.grams; it.amountText = r.amountText;
+      }
+    }
+  }
+  return {
+    title, items, kind: 'recipe',
+    servingsMade: made,
+    servingsEaten: sv.eaten ?? 1,
+    ...(guessed ? { servingsGuessed: true } : {}),
+  };
 }
 
 // Recalculate grams after the person edits an amount chip.
