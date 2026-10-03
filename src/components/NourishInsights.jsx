@@ -10,6 +10,7 @@ import { useState, useEffect } from 'react';
 import {
   sumMacros, dayMicroPercents, MICROS, classifySugar, DEFAULT_TARGETS, saveTargets,
 } from '../lib/nutrientModel';
+import { loadSavedMeals, upsertSavedMeal, deleteSavedMeal, markSavedMealUsed } from '../lib/savedMeals';
 
 const CARD  = { background: 'white', border: '1.5px solid #e8e4de', borderRadius: 20, padding: '18px 20px', marginBottom: 20 };
 const LABEL = { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1.2px', color: '#888', marginBottom: 14 };
@@ -48,6 +49,32 @@ function loadRecipes() {
 }
 function saveRecipes(list) { try { localStorage.setItem(RECIPES_KEY, JSON.stringify(list)); } catch {} }
 
+const withKeys = (items) => (items || []).map((i) => ({ ...i, factor: 1, key: `${i.name}-${Math.random().toString(36).slice(2, 7)}` }));
+function parsedFromSnapshot(snap, extra = {}) {
+  const kind = snap.kind || 'single';
+  return {
+    title: snap.title || null, kind, matched: snap.matched !== false,
+    servingsMade: snap.servingsMade || (kind === 'recipe' ? 1 : null),
+    servingsEaten: snap.servingsEaten || (kind === 'recipe' ? 1 : null),
+    servingsGuessed: false,
+    portion: snap.portion || (kind === 'takeout' ? 'regular' : null),
+    eatenFraction: snap.eatenFraction || (kind === 'takeout' ? 1 : null),
+    items: withKeys(snap.items),
+    ...extra,
+  };
+}
+// The meal as it stands now, with any +/− folded into the amounts
+function snapshotOf(p) {
+  return {
+    title: p.title, kind: p.kind, matched: p.matched,
+    servingsMade: p.servingsMade, servingsEaten: p.servingsEaten, portion: p.portion, eatenFraction: p.eatenFraction,
+    items: p.items.map(({ key, factor, ...i }) => ({ ...i, grams: r1(i.grams * factor), amountText: factor === 1 ? i.amountText : `${factorLabel(factor)} ${i.amountText}` })),
+  };
+}
+const kindLine = (snap) => snap.kind === 'recipe' ? `recipe · ${snap.servingsMade || 1} serving${(snap.servingsMade || 1) === 1 ? '' : 's'}`
+  : snap.kind === 'takeout' ? `takeout${snap.portion && snap.portion !== 'regular' ? ` · ${PORTION_NAME[snap.portion].toLowerCase()}` : ''}`
+  : `${snap.items.length} item${snap.items.length === 1 ? '' : 's'}`;
+
 function shareOf(p) {
   if (!p) return 1;
   if (p.kind === 'recipe') return Math.min(1, (p.servingsEaten || 1) / Math.max(0.5, p.servingsMade || 1));
@@ -55,13 +82,28 @@ function shareOf(p) {
   return 1;
 }
 
-export function TypeMealPanel({ quality, busy, onConfirm, onBack, takeout = false, onQuickTakeout }) {
-  const [text, setText] = useState('');
+// initial = { text, snapshot } reopens a logged meal for editing
+export function TypeMealPanel({ quality, busy, onConfirm, onBack, takeout = false, onQuickTakeout, initial = null, editing = false }) {
+  const [text, setText] = useState(initial?.text || '');
   const [parsing, setParsing] = useState(false);
-  const [parsed, setParsed] = useState(null); // { title, kind, items: [...{ factor }], servingsMade, servingsEaten, portion, eatenFraction }
+  const [parsed, setParsed] = useState(() => (initial?.snapshot ? parsedFromSnapshot(initial.snapshot) : null)); // { title, kind, items: [...{ factor }], servingsMade, servingsEaten, portion, eatenFraction }
   const [error, setError] = useState('');
   const [leftovers, setLeftovers] = useState([]);
-  useEffect(() => { setLeftovers(loadRecipes()); }, []);
+  const [saved, setSaved] = useState([]);
+  const [showAllSaved, setShowAllSaved] = useState(false);
+  const [saveOn, setSaveOn] = useState(false);
+  const [saveName, setSaveName] = useState('');
+  useEffect(() => { setLeftovers(loadRecipes()); setSaved(loadSavedMeals()); }, []);
+
+  function useSaved(m) {
+    setText(m.text || '');
+    setParsed(parsedFromSnapshot(m.snapshot, { savedId: m.id, title: m.snapshot.title || m.name }));
+    setSaveOn(false); setSaveName(m.name);
+  }
+  function removeSaved(m) {
+    if (typeof window !== 'undefined' && !window.confirm(`Remove “${m.name}” from your saved meals?`)) return;
+    deleteSavedMeal(m.id); setSaved(loadSavedMeals());
+  }
 
   async function estimate() {
     if (!text.trim()) return;
@@ -71,7 +113,9 @@ export function TypeMealPanel({ quality, busy, onConfirm, onBack, takeout = fals
       const data = await res.json();
       if (!res.ok || !data.items?.length) throw new Error(data.error || 'Could not read that meal');
       const kind = takeout ? 'takeout' : data.kind || 'single';
+      setSaveName(data.title || '');
       setParsed({
+        savedId: parsed?.savedId,
         title: data.title, kind, matched: data.matched !== false, engine: data.engine,
         servingsMade: data.servingsMade || (kind === 'recipe' ? 1 : null),
         servingsEaten: data.servingsEaten || (kind === 'recipe' ? 1 : null),
@@ -130,8 +174,28 @@ export function TypeMealPanel({ quality, busy, onConfirm, onBack, takeout = fals
     if (p.kind === 'recipe') title = `${p.title || 'Home-cooked meal'} · ${servingsText(p.servingsEaten)} of ${p.servingsMade}`;
     if (p.kind === 'takeout') title = `${p.title || 'Takeout'}${p.portion !== 'regular' ? ` (${PORTION_NAME[p.portion].toLowerCase()})` : ''}`;
 
+    const snapshot = snapshotOf(p);
+    // ⭐ Save to (or update) My meals
+    let savedId = p.savedId || null;
+    if (saveOn) {
+      const rec = upsertSavedMeal({ id: p.savedId || undefined, name: saveName || p.title, text, snapshot });
+      savedId = rec.id;
+    } else if (p.savedId) {
+      markSavedMealUsed(p.savedId);
+    }
+
     // Remember batch-cooked recipes so leftovers are one tap tomorrow
-    if (p.kind === 'recipe') {
+    // (not when re-saving an edit — that pot is already counted)
+    // Editing a recipe you logged: move the leftover count by the change in what you ate
+    if (p.kind === 'recipe' && editing && initial?.snapshot?.kind === 'recipe') {
+      try {
+        const delta = (initial.snapshot.servingsEaten || 1) - (p.servingsEaten || 1);
+        const all = JSON.parse(localStorage.getItem(RECIPES_KEY) || '[]');
+        const rec = all.find((r) => r.title === (initial.snapshot.title || 'Home-cooked meal'));
+        if (rec && delta) saveRecipes(all.map((r) => (r === rec ? { ...r, servingsLeft: Math.max(0, r.servingsLeft + delta) } : r)).filter((r) => r.servingsLeft > 0.01));
+      } catch {}
+    }
+    if (p.kind === 'recipe' && !editing) {
       try {
         const all = JSON.parse(localStorage.getItem(RECIPES_KEY) || '[]');
         if (p.leftoverId) {
@@ -146,11 +210,39 @@ export function TypeMealPanel({ quality, busy, onConfirm, onBack, takeout = fals
     onConfirm(items, title, {
       kind: p.kind, takeout: p.kind === 'takeout',
       servingsMade: p.servingsMade, servingsEaten: p.servingsEaten, portion: p.portion, eatenFraction: p.eatenFraction,
+      snapshot, text, savedId, saved: saveOn,
     });
   }
 
   return (
     <div>
+      {/* ⭐ My meals — log again in one tap */}
+      {!parsed && saved.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: '#888' }}>⭐ My meals</div>
+            {saved.length > 4 && (
+              <button onClick={() => setShowAllSaved((v) => !v)} style={{ fontSize: 11, color: '#5a7a5a', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONT, fontWeight: 600 }}>
+                {showAllSaved ? 'Show fewer' : `All ${saved.length}`}
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {(showAllSaved ? saved : saved.slice(0, 4)).map((m) => (
+              <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 11px', border: '1.5px solid #d8e4d8', background: '#f6faf6', borderRadius: 12 }}>
+                <span style={{ fontSize: 16 }}>{m.snapshot.kind === 'takeout' ? '🥡' : m.snapshot.kind === 'recipe' ? '🍲' : '🍽️'}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#2a2a2a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</div>
+                  <div style={{ fontSize: 11, color: '#6a7a6a' }}>{kindLine(m.snapshot)}{m.uses ? ` · logged ${m.uses}×` : ''}</div>
+                </div>
+                <button onClick={() => useSaved(m)} style={{ padding: '6px 12px', borderRadius: 99, border: 'none', background: '#5a7a5a', color: 'white', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: FONT }}>Use</button>
+                <button aria-label={`Remove ${m.name} from my meals`} onClick={() => removeSaved(m)} style={{ ...stepBtn, width: 26, height: 26, border: 'none', color: '#bbb', background: 'none' }}>✕</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Leftovers from recipes cooked this week */}
       {!takeout && !parsed && leftovers.length > 0 && (
         <div style={{ marginBottom: 14 }}>
@@ -203,9 +295,9 @@ export function TypeMealPanel({ quality, busy, onConfirm, onBack, takeout = fals
         <div style={{ marginTop: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: '#888' }}>
-              {parsed.leftoverId ? 'Leftovers' : 'We read this as'}{parsed.title ? ` · ${parsed.title}` : ''}
+              {parsed.leftoverId ? 'Leftovers' : parsed.savedId ? 'From my meals' : editing ? 'Editing' : 'We read this as'}{parsed.title ? ` · ${parsed.title}` : ''}
             </div>
-            <button onClick={() => setParsed(null)} style={{ fontSize: 11, color: '#5a7a5a', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONT, fontWeight: 600 }}>{parsed.leftoverId ? 'Back' : 'Edit text'}</button>
+            <button onClick={() => setParsed(null)} style={{ fontSize: 11, color: '#5a7a5a', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONT, fontWeight: 600 }}>{parsed.leftoverId || parsed.savedId ? 'Back' : text ? 'Edit text' : 'Type instead'}</button>
           </div>
 
           {/* Recipe: servings made / eaten */}
@@ -280,10 +372,27 @@ export function TypeMealPanel({ quality, busy, onConfirm, onBack, takeout = fals
               );
             })}
           </div>
+          {/* ⭐ Save to my meals */}
+          {!parsed.leftoverId && (
+            <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 12, border: `1.5px solid ${saveOn ? '#8aad8a' : '#e8e4de'}`, background: saveOn ? '#f4f8f4' : 'white' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 600, color: '#3a4a3a', cursor: 'pointer' }}>
+                <input type="checkbox" checked={saveOn} onChange={(e) => { setSaveOn(e.target.checked); if (!saveName) setSaveName(parsed.title || ''); }} style={{ width: 16, height: 16, accentColor: '#5a7a5a' }} />
+                {parsed.savedId ? '⭐ Update this saved meal with these changes' : '⭐ Save to my meals'}
+              </label>
+              {saveOn && (
+                <input value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder="Name it, e.g. Salmon risotto"
+                  aria-label="Saved meal name"
+                  style={{ marginTop: 8, width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 9, border: '1.5px solid #cfdccf', fontSize: 13, fontFamily: FONT, outline: 'none' }} />
+              )}
+              {saveOn && parsed.kind === 'recipe' && <div style={{ fontSize: 10.5, color: '#777', marginTop: 5 }}>Saves the whole recipe and its {parsed.servingsMade} servings — next time you just pick how many you ate.</div>}
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
             <button onClick={confirm} disabled={busy || parsed.items.length === 0}
               style={{ flex: 1, padding: 12, borderRadius: 10, border: 'none', background: '#5a7a5a', color: 'white', fontWeight: 600, fontSize: 13, cursor: 'pointer', fontFamily: FONT }}>
               {busy ? 'Estimating nutrients…'
+                : editing ? '✓ Save changes'
                 : parsed.kind === 'recipe' ? `✓ Log ${servingsText(parsed.servingsEaten)}`
                 : parsed.kind === 'takeout' ? '✓ Log takeout'
                 : `✓ Log ${parsed.items.length} item${parsed.items.length > 1 ? 's' : ''}`}

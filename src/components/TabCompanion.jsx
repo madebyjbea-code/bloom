@@ -120,7 +120,7 @@ const THREE_HOURS = 3 * 60 * 60 * 1000;
 const LABEL = { fontSize:10, fontWeight:600, textTransform:'uppercase', letterSpacing:'1.2px', color:'#888', marginBottom:12 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-export default function TabCompanion({ userId, toast: toastProp, onCustomise, onNavigate, initialView }) {
+export default function TabCompanion({ userId, toast: toastProp, onCustomise, onNavigate, initialView, onHealthDetails }) {
   // Toast — use the passed one, else drive the global #bloom-toast element.
   const toast = toastProp || ((msg) => {
     const el = document.getElementById('bloom-toast');
@@ -365,9 +365,16 @@ export default function TabCompanion({ userId, toast: toastProp, onCustomise, on
             </button>
           )}
 
-          {/* Health bar */}
-          <div style={{ marginBottom: 10, textAlign: 'left' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 500, marginBottom: 4 }}><span>❤️ Health</span><span>{health}%</span></div>
+          {/* Health bar — tap for the breakdown (same sheet as Home) */}
+          <div style={{ marginBottom: 10, textAlign: 'left', cursor: onHealthDetails ? 'pointer' : 'default' }}
+            {...(onHealthDetails ? {
+              role: 'button', tabIndex: 0, title: 'See what’s helping and hurting',
+              onClick: onHealthDetails,
+              onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onHealthDetails(); } },
+            } : {})}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 500, marginBottom: 4 }}>
+              <span>❤️ Health{onHealthDetails && <span style={{ marginLeft: 4, fontSize: 10, color: '#5a7a5a', fontWeight: 600 }}>details ›</span>}</span><span>{health}%</span>
+            </div>
             <div style={{ height: 7, background: 'rgba(0,0,0,0.1)', borderRadius: 99, overflow: 'hidden' }}>
               <div style={{ height: '100%', width: `${health}%`, background: healthFill, borderRadius: 99, transition: 'width 0.8s' }} />
             </div>

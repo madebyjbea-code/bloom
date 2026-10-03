@@ -18,6 +18,7 @@ import { getRecipes } from '../lib/nutrition';
 import { classifySugar, MICROS, DEFAULT_TARGETS, loadTargets } from '../lib/nutrientModel';
 import { TypeMealPanel, MealSummaryCard, MacrosCard, SugarCard } from './NourishInsights';
 import NourishWeek from './NourishWeek';
+import { getMealSource, setMealSource, deleteMealSource, snapshotFromEntries, upsertSavedMeal, isMealSaved } from '../lib/savedMeals';
 
 const MICRO_KEYS = new Set(MICROS.map(m => m.key));
 
@@ -202,6 +203,11 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
 
   // Takeout flow state
   const [isTakeout, setIsTakeout]         = useState(false);
+  // Editing a logged meal: { mealId, ids: [entry ids being replaced], initial: { text, snapshot }, label }
+  const [editingMeal, setEditingMeal]     = useState(null);
+  const [expandedMeal, setExpandedMeal]   = useState(null);
+  const [savedTick, setSavedTick]         = useState(0); // re-render after saving a meal
+  const logCardRef = useRef(null);
 
   // ── v4: Today / This week, typed logging, meal summary, macro targets ─────
   const [view, setView]                   = useState('today');
@@ -293,6 +299,7 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
     setSearch('');
     setServingEditing(null);
     setIsTakeout(false);
+    setEditingMeal(null);
   }
 
   function cancelLog() {
@@ -302,6 +309,7 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
     setSearch('');
     setPickCategory(null);
     setIsTakeout(false);
+    setEditingMeal(null);
   }
 
   function pickMeal(key) {
@@ -364,6 +372,7 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
   async function confirmLog() {
     if (selected.length === 0) { toast('Pick at least one food first'); return; }
     setFetchingNutrients(true);
+    const mealId = `meal-${Date.now()}`;
     const newEntries = [];
     for (const sel of selected) {
       const grams = Math.round(sel.serving.grams * sel.qty);
@@ -380,8 +389,10 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
         prep: [],
         sugarForm: classifySugar(sel.name, [], logQuality).form,
         sugarReason: classifySugar(sel.name, [], logQuality).reason,
+        mealId,
       });
     }
+    setMealSource(mealId, { text: '', snapshot: snapshotFromEntries(newEntries), takeout: isTakeout });
     setFetchingNutrients(false);
     setTodayFoods(prev => [...prev, ...newEntries]);
     setLastMealSummary({ title: null, mealLabel: LOG_MEAL_OPTIONS.find(m => m.key === logMealSlot)?.label || 'This meal', entries: newEntries, quality: logQuality });
@@ -398,9 +409,11 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
   async function confirmTyped(items, title, meta = {}) {
     if (!items.length) return;
     const takeout = isTakeout || !!meta.takeout;
+    const editing = editingMeal;
     setFetchingNutrients(true);
     const results = await Promise.all(items.map(it => getFoodNutrients(it.name, it.grams)));
     const stamp = Date.now();
+    const mealId = editing?.mealId || `meal-${stamp}`;
     const newEntries = items.map((it, idx) => ({
       id: `${stamp}-${idx}-${it.name}`,
       name: it.display || it.name,
@@ -417,13 +430,16 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
       dish: title || null,
       ...(meta.kind === 'recipe' ? { recipe: { made: meta.servingsMade, eaten: meta.servingsEaten } } : {}),
       ...(takeout ? { isTakeout: true, takeoutQuality: logQuality, portion: meta.portion || null } : {}),
+      mealId,
     }));
+    if (meta.snapshot) setMealSource(mealId, { text: meta.text || '', snapshot: meta.snapshot, takeout, savedId: meta.savedId || null });
     setFetchingNutrients(false);
-    setTodayFoods(prev => [...prev, ...newEntries]);
+    setTodayFoods(prev => [...prev.filter(f => !(editing?.ids || []).includes(f.id)), ...newEntries]);
     const newCats = newEntries.map(e => e.category).filter(Boolean);
     setSelectedCategories(prev => [...new Set([...prev, ...newCats])]);
     setLastMealSummary({ title, mealLabel: LOG_MEAL_OPTIONS.find(m => m.key === logMealSlot)?.label || 'This meal', entries: newEntries, quality: logQuality });
-    toast(takeout ? `🥡 ${title || 'Takeout'} logged` : meta.kind === 'recipe' ? `🍲 ${title} logged` : `🍽️ ${title ? `${title} · ` : ''}${newEntries.length} item${newEntries.length > 1 ? 's' : ''} logged`);
+    if (meta.saved) setSavedTick(t => t + 1);
+    toast(editing ? `✏️ ${title || 'Meal'} updated${meta.saved ? ' · ⭐ saved' : ''}` : meta.saved ? `⭐ ${title || 'Meal'} logged & saved to My meals` : takeout ? `🥡 ${title || 'Takeout'} logged` : meta.kind === 'recipe' ? `🍲 ${title} logged` : `🍽️ ${title ? `${title} · ` : ''}${newEntries.length} item${newEntries.length > 1 ? 's' : ''} logged`);
     cancelLog();
   }
 
@@ -455,21 +471,74 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
     cancelLog();
   }
 
-  function editFood(entry) {
-    // Edit: re-open as single-food selection in step foods
-    const serving = resolveServing(entry.name, {});
-    const ratio = entry.grams / (serving.grams || entry.grams || 1);
-    const nearestQty = QTY_STEPS.reduce((best, q) => (Math.abs(q - ratio) < Math.abs(best - ratio) ? q : best), QTY_STEPS[0]);
-    setLogMealSlot(entry.meal || guessMeal());
-    setLogQuality(null);
-    setSelected([{ name: entry.name, category: entry.category, serving, qty: nearestQty }]);
+  // ── Logged meals: group entries, edit / save / delete a whole meal ───────
+  function groupMeals(entries) {
+    const groups = [];
+    const byKey = {};
+    for (const f of entries) {
+      const k = f.mealId || f.id;
+      if (!byKey[k]) { byKey[k] = { key: k, mealId: f.mealId || null, entries: [] }; groups.push(byKey[k]); }
+      byKey[k].entries.push(f);
+    }
+    return groups;
+  }
+  function sourceOf(group) {
+    return (group.mealId && getMealSource(group.mealId)) || { text: '', snapshot: snapshotFromEntries(group.entries) };
+  }
+  function mealTitle(group) {
+    const e = group.entries[0];
+    if (e.dish) return e.dish;
+    if (group.entries.length === 1) return e.name;
+    return `${e.name} + ${group.entries.length - 1} more`;
+  }
+
+  // Reopen a logged meal exactly as it was typed / picked; nothing is removed
+  // until "Save changes" — cancelling leaves the log untouched.
+  function startEditMeal(group) {
+    const src = sourceOf(group);
+    const first = group.entries[0];
+    setLogMealSlot(first.meal || guessMeal());
+    setLogQuality(meals[first.meal] || first.takeoutQuality || null);
+    setIsTakeout(group.entries.some(e => e.isTakeout));
+    setFoodMode('type');
+    setSelected([]);
+    setEditingMeal({
+      mealId: group.mealId || `meal-${Date.now()}`,
+      ids: group.entries.map(e => e.id),
+      initial: { text: src.text || '', snapshot: src.snapshot },
+      label: mealTitle(group),
+    });
     setLogStep('foods');
-    // Remove old entry
-    setTodayFoods(prev => prev.filter(f => f.id !== entry.id));
-    if (expandedEntry === entry.id) setExpandedEntry(null);
+    setTimeout(() => logCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+  }
+
+  function saveMealGroup(group) {
+    const src = sourceOf(group);
+    const already = isMealSaved(src.snapshot);
+    if (already) { toast(`⭐ Already in My meals as “${already.name}”`); return; }
+    const suggested = (src.snapshot.title || mealTitle(group)).replace(/ · .*$/, '');
+    const name = typeof window !== 'undefined' ? window.prompt('Save to My meals as:', suggested) : suggested;
+    if (name === null) return;
+    upsertSavedMeal({ name: name || suggested, text: src.text || '', snapshot: src.snapshot });
+    setSavedTick(t => t + 1);
+    toast(`⭐ Saved “${name || suggested}” — find it under My meals when you log`);
+  }
+
+  function removeMeal(group) {
+    if (group.entries.length > 1 && typeof window !== 'undefined' && !window.confirm(`Remove “${mealTitle(group)}” (${group.entries.length} items) from today?`)) return;
+    const ids = group.entries.map(e => e.id);
+    setTodayFoods(prev => prev.filter(f => !ids.includes(f.id)));
+    if (group.mealId) deleteMealSource(group.mealId);
+    if (expandedMeal === group.key) setExpandedMeal(null);
   }
 
   function removeFood(id) {
+    // keep the meal's saved source in step, so a later edit doesn't bring it back
+    const entry = todayFoods.find(f => f.id === id);
+    const src = entry?.mealId ? getMealSource(entry.mealId) : null;
+    if (src?.snapshot?.items) {
+      setMealSource(entry.mealId, { ...src, snapshot: { ...src.snapshot, items: src.snapshot.items.filter(i => i.display !== entry.name) } });
+    }
     setTodayFoods(prev => prev.filter(f => f.id !== id));
     if (expandedEntry === id) setExpandedEntry(null);
   }
@@ -633,7 +702,7 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
                     } else {
                       setSeasonalPopover(null);
                       if (!logStep) startLog();
-                      setLogStep('foods');
+                      setFoodMode('pick'); setLogStep('foods');
                       const serving = resolveServing(f.name, {});
                       setSelected(prev => prev.some(s => s.name === f.name) ? prev : [...prev, { name: f.name, category: f.category, serving, qty: 1 }]);
                     }
@@ -679,7 +748,7 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
                   <button onClick={() => {
                     setSeasonalPopover(null);
                     if (!logStep) startLog();
-                    setLogStep('foods');
+                    setFoodMode('pick'); setLogStep('foods');
                     const serving = resolveServing(seasonalPopover, {});
                     setSelected(prev => prev.some(s => s.name === seasonalPopover) ? prev : [...prev, { name: seasonalPopover, category: food?.category, serving, qty: 1 }]);
                   }}
@@ -695,9 +764,9 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
       </div>
 
       {/* ── Log a meal — stepped flow ───────────────────────────────────────── */}
-      <div style={CARD}>
+      <div style={CARD} ref={logCardRef}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: logStep ? 18 : 0 }}>
-          <div style={LABEL}>Log a meal</div>
+          <div style={LABEL}>{editingMeal ? 'Edit meal' : 'Log a meal'}</div>
           {!logStep ? (
             <button onClick={startLog}
               style={{ padding: '8px 18px', background: '#5a7a5a', color: 'white', border: 'none', borderRadius: 99, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
@@ -714,7 +783,7 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
         {logStep && (
           <>
             {/* Progress indicator */}
-            {(() => {
+            {!editingMeal && (() => {
               const steps = ['meal','quality','foods'];
               const labels = isTakeout
                 ? ['Meal','Quality','What you had']
@@ -786,6 +855,12 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
             {/* STEP 3: What you ate — multi-select foods */}
             {logStep === 'foods' && (
               <div>
+                {editingMeal && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', marginBottom: 12, borderRadius: 12, background: '#f4f8f4', border: '1.5px solid #cfdccf', fontSize: 12, color: '#3a5a3a' }}>
+                    <span>✏️</span>
+                    <span style={{ flex: 1 }}>Editing <strong>{editingMeal.label}</strong> · {logMealSlot}. Change anything below — saving replaces what you logged.</span>
+                  </div>
+                )}
                 {isTakeout && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                     <span style={{ fontSize: 18 }}>🥡</span>
@@ -795,7 +870,7 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
                     </div>
                   </div>
                 )}
-                {!isTakeout && <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+                {!isTakeout && !editingMeal && <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
                   {[['type', '✍️ Type it'], ['pick', '📋 Pick from list']].map(([k, l]) => (
                     <button key={k} onClick={() => setFoodMode(k)}
                       style={{ padding: '7px 14px', borderRadius: 99, border: `1.5px solid ${foodMode === k ? '#5a7a5a' : '#e8e4de'}`, background: foodMode === k ? '#5a7a5a' : 'white', color: foodMode === k ? 'white' : '#555', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
@@ -803,9 +878,12 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
                     </button>
                   ))}
                 </div>}
-                {foodMode === 'type' || isTakeout ? (
-                  <TypeMealPanel key={isTakeout ? 'takeout' : 'home'} takeout={isTakeout} onQuickTakeout={quickTakeout}
-                    quality={logQuality} busy={fetchingNutrients} onConfirm={confirmTyped} onBack={() => setLogStep('quality')} />
+                {foodMode === 'type' || isTakeout || editingMeal ? (
+                  <TypeMealPanel key={editingMeal ? `edit-${editingMeal.mealId}` : `${isTakeout ? 'takeout' : 'home'}-${savedTick}`}
+                    takeout={isTakeout} onQuickTakeout={editingMeal ? null : quickTakeout}
+                    initial={editingMeal?.initial || null} editing={!!editingMeal}
+                    quality={logQuality} busy={fetchingNutrients} onConfirm={confirmTyped}
+                    onBack={editingMeal ? cancelLog : () => setLogStep('quality')} />
                 ) : (<>
                 <div style={{ fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 10 }}>
                   What did you eat? <span style={{ fontWeight: 400, color: '#aaa' }}>Select everything in this meal</span>
@@ -915,34 +993,71 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
                 <div key={mealOpt.key} style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: '#888', marginBottom: 6 }}>{mealOpt.emoji} {mealOpt.label}</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {entries.map(f => (
-                      <div key={f.id} style={{ border: '1px solid #e8e4de', borderRadius: 12, overflow: 'hidden' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 12px', gap: 6 }}>
-                          <button onClick={() => setExpandedEntry(expandedEntry === f.id ? null : f.id)}
-                            style={{ background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', fontSize: 13, fontFamily: 'DM Sans,sans-serif', flex: 1, minWidth: 0, color: '#2a2a2a' }}>
-                            {f.name} <span style={{ color: '#aaa', fontSize: 11 }}>· {f.servingLabel || `${f.grams}g`}{f.nutrients?.length ? ' · view ▾' : ''}</span>
-                          </button>
-                          <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
-                            <button onClick={() => editFood(f)} title="Edit" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8aad8a', fontSize: 13 }}>✏️</button>
-                            <button onClick={() => removeFood(f.id)} title="Remove" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', fontSize: 14 }}>✕</button>
-                          </div>
-                        </div>
-                        {expandedEntry === f.id && f.nutrients?.length > 0 && (
-                          <div style={{ padding: '4px 14px 14px', borderTop: '1px solid #f0ede8' }}>
-                            <div style={{ fontSize: 10, color: '#aaa', margin: '8px 0' }}>Strong source of · USDA FoodData Central</div>
-                            {f.nutrients.filter(n => MICRO_KEYS.has(n.key)).slice(0, 5).map(n => (
-                              <div key={n.key} style={{ marginBottom: 7 }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}><span>{n.label}</span><span style={{ color: '#888' }}>{n.percent_dv}% DV</span></div>
-                                <div style={{ height: 6, background: '#f0ede8', borderRadius: 99, overflow: 'hidden' }}><div style={{ height: '100%', width: `${Math.min(100, n.percent_dv)}%`, background: '#8aad8a', borderRadius: 99 }} /></div>
+                    {groupMeals(entries).map(group => {
+                      const open = expandedMeal === group.key;
+                      const first = group.entries[0];
+                      const takeout = group.entries.some(e => e.isTakeout);
+                      const recipe = first.recipe;
+                      const totalG = group.entries.reduce((a, e) => a + (e.grams || 0), 0);
+                      const single = group.entries.length === 1 && !first.dish;
+                      const src = group.mealId ? getMealSource(group.mealId) : null;
+                      const starred = src ? !!isMealSaved(src.snapshot) : false;
+                      return (
+                        <div key={group.key} style={{ border: '1px solid #e8e4de', borderRadius: 12, overflow: 'hidden', background: 'white' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 12px', gap: 6 }}>
+                            <button onClick={() => setExpandedMeal(open ? null : group.key)} aria-expanded={open}
+                              style={{ background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', fontFamily: 'DM Sans,sans-serif', flex: 1, minWidth: 0, color: '#2a2a2a', padding: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: single ? 400 : 600 }}>
+                                {takeout ? '🥡 ' : recipe ? '🍲 ' : ''}{mealTitle(group)}
                               </div>
-                            ))}
+                              <div style={{ color: '#aaa', fontSize: 11, marginTop: 1 }}>
+                                {single ? (first.servingLabel || `${first.grams}g`) : `${group.entries.length} items · ~${Math.round(totalG)} g`}
+                                {' · '}{open ? 'hide ▴' : 'view ▾'}
+                              </div>
+                            </button>
+                            <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignItems: 'center' }}>
+                              <button onClick={() => saveMealGroup(group)} title={starred ? 'In My meals' : 'Save to My meals'} aria-label={starred ? 'Saved in My meals' : 'Save to My meals'}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: starred ? '#c4880a' : '#bbb', fontSize: 15, width: 32, height: 32 }}>{starred ? '★' : '☆'}</button>
+                              <button onClick={() => startEditMeal(group)} title="Edit meal" aria-label="Edit meal"
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8aad8a', fontSize: 13, width: 32, height: 32 }}>✏️</button>
+                              <button onClick={() => removeMeal(group)} title="Remove meal" aria-label="Remove meal"
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', fontSize: 14, width: 32, height: 32 }}>✕</button>
+                            </div>
                           </div>
-                        )}
-                        {expandedEntry === f.id && (!f.nutrients || f.nutrients.length === 0) && (
-                          <div style={{ padding: '4px 14px 12px', fontSize: 11, color: '#bbb', fontStyle: 'italic' }}>No USDA match found yet.</div>
-                        )}
-                      </div>
-                    ))}
+                          {open && (
+                            <div style={{ borderTop: '1px solid #f0ede8', padding: '6px 12px 10px' }}>
+                              {group.entries.map(f => (
+                                <div key={f.id} style={{ borderBottom: '1px dashed #f0ede8' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 0' }}>
+                                    <button onClick={() => setExpandedEntry(expandedEntry === f.id ? null : f.id)}
+                                      style={{ background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', fontSize: 12.5, fontFamily: 'DM Sans,sans-serif', flex: 1, minWidth: 0, color: '#2a2a2a', padding: 0 }}>
+                                      {f.name} <span style={{ color: '#aaa', fontSize: 11 }}>· {f.servingLabel || `${f.grams}g`}{f.nutrients?.length ? (expandedEntry === f.id ? ' ▴' : ' ▾') : ''}</span>
+                                    </button>
+                                    {group.entries.length > 1 && (
+                                      <button onClick={() => removeFood(f.id)} title="Remove this item" aria-label={`Remove ${f.name}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc', fontSize: 12 }}>✕</button>
+                                    )}
+                                  </div>
+                                  {expandedEntry === f.id && f.nutrients?.length > 0 && (
+                                    <div style={{ padding: '0 2px 10px' }}>
+                                      <div style={{ fontSize: 10, color: '#aaa', margin: '2px 0 6px' }}>Strong source of · USDA FoodData Central</div>
+                                      {f.nutrients.filter(n => MICRO_KEYS.has(n.key)).slice(0, 5).map(n => (
+                                        <div key={n.key} style={{ marginBottom: 6 }}>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}><span>{n.label}</span><span style={{ color: '#888' }}>{n.percent_dv}% DV</span></div>
+                                          <div style={{ height: 5, background: '#f0ede8', borderRadius: 99, overflow: 'hidden' }}><div style={{ height: '100%', width: `${Math.min(100, n.percent_dv)}%`, background: '#8aad8a', borderRadius: 99 }} /></div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {expandedEntry === f.id && (!f.nutrients || f.nutrients.length === 0) && (
+                                    <div style={{ padding: '0 2px 8px', fontSize: 11, color: '#bbb', fontStyle: 'italic' }}>No USDA match found yet.</div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               );
@@ -975,7 +1090,7 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 6 }}>
                       <span style={{ fontSize: 10, color: '#b8935a', marginRight: 2 }}>Try:</span>
                       {NUTRIENT_FOOD_SUGGESTIONS[n.key].map(s => (
-                        <button key={s.name} onClick={() => { setSelected(prev => prev.some(x => x.name === s.name) ? prev : [...prev, { name: s.name, category: s.category, serving: resolveServing(s.name, {}), qty: 1 }]); setLogStep('foods'); }}
+                        <button key={s.name} onClick={() => { setSelected(prev => prev.some(x => x.name === s.name) ? prev : [...prev, { name: s.name, category: s.category, serving: resolveServing(s.name, {}), qty: 1 }]); setFoodMode('pick'); setLogStep('foods'); }}
                           style={{ fontSize: 11, padding: '3px 10px', borderRadius: 99, border: '1px solid #e8c8a0', background: 'white', color: '#9a7a2a', cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
                           {s.name}
                         </button>
@@ -1007,7 +1122,7 @@ export default function TabNourish({ userId, coins, setStats, toast }) {
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 6 }}>
                         <span style={{ fontSize: 10, color: '#c47a2a', marginRight: 2 }}>Try:</span>
                         {NUTRIENT_FOOD_SUGGESTIONS[n.key].map(s => (
-                          <button key={s.name} onClick={() => { setSelected(prev => prev.some(x => x.name === s.name) ? prev : [...prev, { name: s.name, category: s.category, serving: resolveServing(s.name, {}), qty: 1 }]); setLogStep('foods'); }}
+                          <button key={s.name} onClick={() => { setSelected(prev => prev.some(x => x.name === s.name) ? prev : [...prev, { name: s.name, category: s.category, serving: resolveServing(s.name, {}), qty: 1 }]); setFoodMode('pick'); setLogStep('foods'); }}
                             style={{ fontSize: 11, padding: '3px 10px', borderRadius: 99, border: '1px solid #e8c8a0', background: 'white', color: '#c47a2a', cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
                             {s.name}
                           </button>
