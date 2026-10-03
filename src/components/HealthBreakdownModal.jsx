@@ -7,8 +7,12 @@
 //   • ceiling 90 % until all 4 pillars are met (water, mindfulness, movement, sleep)
 //   • −5 on that ceiling when no meal is logged in Nourish
 //   • +3 per habit done, +1 water, +2 mindfulness, +1 movement
-//   • overnight reset −5 (skipped on rest days), bad-habit slips cost their penalty
+//   • overnight dip based on YESTERDAY: 0 if all 4 pillars + a meal were logged,
+//     −1 per thing missed (max −5), −5 if nothing was logged; none on rest days
+//   • bad-habit slips cost their penalty when logged
 //   • 3 processed meals in a row → −3
+
+import { useStore } from '../lib/store';
 
 const FONT = 'DM Sans,sans-serif';
 
@@ -59,6 +63,13 @@ export default function HealthBreakdownModal({
   badSlips = [], overnightApplied, isRestDay, onClose, onLogStats, onLogSleep, onGoNourish, onGoHabits,
 }) {
   const nourish = readNourishToday();
+  // Overnight dip — read straight from the store so it shows the real amount
+  const lastDecayDate = useStore((s) => s.lastDecayDate);
+  const lastDecayAmount = useStore((s) => s.lastDecayAmount);
+  const lastDecayDetail = useStore((s) => s.lastDecayDetail);
+  const ranToday = lastDecayDate === new Date().toISOString().split('T')[0];
+  const dip = ranToday ? (lastDecayAmount ?? (overnightApplied ? 5 : 0)) : 0;
+  const dipDetail = lastDecayDetail || 'Health eases back a little each night so it reflects recent days';
   const pillarsMet = pillars.filter((p) => p.met);
   const pillarsOpen = pillars.filter((p) => !p.met);
   const habitsLeft = Math.max(0, habitsTotal - habitsDone);
@@ -123,7 +134,8 @@ export default function HealthBreakdownModal({
           {habitsDone > 0 && <Row tone="good" title="Habits" detail={`${habitsDone} of ${habitsTotal} done today`} pill={`+${habitsDone * 3}`} />}
           {nourish.logged && <Row tone="good" title="Meal logged" detail="Keeps the top 5% unlocked" pill="unlocked" />}
           {isRestDay && <Row tone="good" title="Rest day" detail="No overnight dip today" pill="protected" />}
-          {!pillarsMet.length && !habitsDone && !nourish.logged && !isRestDay && <div style={{ fontSize: 12.5, color: '#999', padding: '10px 0 12px' }}>Nothing yet today — every small thing counts.</div>}
+          {!isRestDay && ranToday && dip === 0 && lastDecayAmount === 0 && <Row tone="good" title="Yesterday was complete" detail="All 4 pillars and a meal logged — no overnight dip" pill="no dip" />}
+          {!pillarsMet.length && !habitsDone && !nourish.logged && !isRestDay && !(ranToday && lastDecayAmount === 0) && <div style={{ fontSize: 12.5, color: '#999', padding: '10px 0 12px' }}>Nothing yet today — every small thing counts.</div>}
         </div>
 
         {/* Holding back */}
@@ -138,8 +150,8 @@ export default function HealthBreakdownModal({
           {badSlips.map((b) => <Row key={b.name} tone="bad" title={b.name} detail="Logged honestly today" pill={`−${b.penalty}`} />)}
           {nourish.dipToday && <Row tone="bad" title="3 processed meals in a row" detail="Small dip applied today" pill="−3" />}
           {!nourish.dipToday && nourish.streak === 2 && <Row tone="warn" title="Processed meals" detail="2 in a row — a 3rd costs 3" pill="watch" />}
-          {overnightApplied && <Row tone="warn" title="Overnight reset" detail="Health eases back a little each night so it reflects recent days" pill="−5" />}
-          {!pillarsOpen.length && nourish.logged && !habitsLeft && !badSlips.length && !overnightApplied && <div style={{ fontSize: 12.5, color: '#999', padding: '10px 0 12px' }}>Nothing — you’ve done everything for today 🌿</div>}
+          {dip > 0 && <Row tone="warn" title="Overnight dip" detail={`${dipDetail}. Log all 4 pillars and a meal today for no dip tomorrow.`} pill={`−${dip}`} />}
+          {!pillarsOpen.length && nourish.logged && !habitsLeft && !badSlips.length && !dip && <div style={{ fontSize: 12.5, color: '#999', padding: '10px 0 12px' }}>Nothing — you’ve done everything for today 🌿</div>}
         </div>
 
         {best ? (

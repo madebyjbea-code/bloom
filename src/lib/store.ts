@@ -98,6 +98,8 @@ type StoreState = {
 
   // Health decay
   lastDecayDate: string | null;
+  lastDecayAmount: number | null;   // how much the last overnight dip took (0 = none)
+  lastDecayDetail: string | null;   // plain-language reason, shown in the health breakdown
 
   // Energy mode
   energyMode: 'low' | 'normal' | 'high' | null;
@@ -197,6 +199,8 @@ const defaults: Partial<StoreState> = {
   restWeekStart: null,
 
   lastDecayDate: null,
+  lastDecayAmount: null,
+  lastDecayDetail: null,
   energyMode: null,
   energyModeDate: null,
   energyModeSetupDone: false,
@@ -313,33 +317,60 @@ export const useStore = create<StoreState>()(
       },
 
       // ── Health decay ─────────────────────────────────────
-      // Runs once per day on app load.
-      // -5 baseline + yesterday's bad habit penalties, capped at -15 total.
-      // Rest days skip decay entirely.
+      // Runs once per day on app load and looks at YESTERDAY:
+      //   all 4 pillars (2.5 L water, 10 min mindfulness, 15 min movement,
+      //   6 h sleep) + a meal logged  →  no dip
+      //   some of it                  →  −1 per thing missed (max −5)
+      //   nothing logged at all       →  −5
+      //   rest day today              →  no dip
+      // Bad-habit slips are NOT added here — they already cost health
+      // the moment they're logged. Health never drops below 10.
       // Caller (Dashboard) persists newHealth to Supabase.
       applyDailyDecay: async (userId?: string) => {
-        const { lastDecayDate, isRestDayToday, health, badHabits, badHabitLogsToday } = get();
+        const { lastDecayDate, isRestDayToday, health } = get();
         const today = new Date().toISOString().split('T')[0];
 
-        if (lastDecayDate === today || isRestDayToday) {
+        if (lastDecayDate === today) {
           return { decayed: false, newHealth: health };
         }
+        if (isRestDayToday) {
+          set({ lastDecayDate: today, lastDecayAmount: 0, lastDecayDetail: 'Rest day — no overnight dip' });
+          return { decayed: false, newHealth: health, totalDecay: 0 };
+        }
 
-        const BASELINE_DECAY = 5;
+        const MAX_DECAY = 5;
         const FLOOR = 10;
-        const MAX_DECAY = 15;
+        const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+        const read = (k: string, fb: any) => { try { const r = localStorage.getItem(k); return r ? JSON.parse(r) : fb; } catch { return fb; } };
 
-        const badHabitPenalty = Object.entries(badHabitLogsToday)
-          .filter(([, log]) => (log as { failed: boolean }).failed)
-          .reduce((sum, [key]) => {
-            const habit = badHabits.find(h => h.key === key);
-            return sum + (habit?.healthPenalty || 0);
-          }, 0);
+        // Yesterday's pillars: the daily log, or today's-stats if it's still yesterday's
+        const log = read('bloom-daily-stats-log', {})[yesterday] || {};
+        const daily = read('bloom-daily-stats', {});
+        const stats = { ...(daily.date === yesterday ? daily : {}), ...log };
+        const pillars = [
+          { label: 'water',       met: Number(stats.water || 0) >= 2.5,     any: Number(stats.water || 0) > 0 },
+          { label: 'mindfulness', met: Number(stats.mindfulness || 0) >= 10, any: Number(stats.mindfulness || 0) > 0 },
+          { label: 'movement',    met: Number(stats.movement || 0) >= 15,   any: Number(stats.movement || 0) > 0 },
+          { label: 'sleep',       met: Number(stats.sleep || 0) >= 6,       any: Number(stats.sleep || 0) > 0 },
+        ];
+        const foods = read('bloom-nourish-foods', {})[yesterday] || [];
+        const nourish = read('bloom-nourish', {})[yesterday] || {};
+        const mealLogged = foods.length > 0 || (nourish.categories || []).length > 0 || Object.keys(nourish.meals || {}).length > 0;
 
-        const totalDecay = Math.min(BASELINE_DECAY + badHabitPenalty, MAX_DECAY);
-        const newHealth = Math.max(FLOOR, health - totalDecay);
-        set({ health: newHealth, lastDecayDate: today });
-        return { decayed: true, newHealth, totalDecay };
+        const missed = pillars.filter(p => !p.met).map(p => p.label);
+        if (!mealLogged) missed.push('a meal');
+        const nothingLogged = !mealLogged && !pillars.some(p => p.any);
+
+        const totalDecay = nothingLogged ? MAX_DECAY : Math.min(MAX_DECAY, missed.length);
+        const detail = totalDecay === 0
+          ? 'Yesterday was complete — no overnight dip'
+          : nothingLogged
+            ? 'Nothing was logged yesterday'
+            : `Yesterday missed: ${missed.join(', ')}`;
+
+        const newHealth = totalDecay ? Math.max(FLOOR, health - totalDecay) : health;
+        set({ health: newHealth, lastDecayDate: today, lastDecayAmount: totalDecay, lastDecayDetail: detail });
+        return { decayed: totalDecay > 0, newHealth, totalDecay };
       },
 
       // ── Energy mode ──────────────────────────────────────
@@ -423,6 +454,8 @@ export const useStore = create<StoreState>()(
         restWeekStart: state.restWeekStart,
         // Health decay
         lastDecayDate: state.lastDecayDate,
+        lastDecayAmount: state.lastDecayAmount,
+        lastDecayDetail: state.lastDecayDetail,
         // Energy mode
         energyMode: state.energyMode,
         energyModeDate: state.energyModeDate,
