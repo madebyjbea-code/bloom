@@ -29,6 +29,8 @@ import { localDateStr } from '../lib/scheduleStorage';
 import CalendarConnectionModal from './CalendarConnectionModal';  // if using modal separately
 import { getCalendarEvents } from '../lib/calendarIntegration';
 import DailySchedulingPrompt from './DailySchedulingPrompt';
+// Calendar & scheduling is hidden unless NEXT_PUBLIC_ENABLE_SCHEDULING=true (set it for Preview in Vercel)
+const SCHEDULING_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SCHEDULING === 'true';
 import { saveGoogleCalendarTokens } from '../lib/calendarIntegration';
 
 
@@ -102,7 +104,7 @@ const NAV = [
   { key: 'dashboard', icon: '🌿', label: 'Home' },
   { key: 'habits',    icon: '✅', label: 'Habits' },
   { key: 'companion', icon: '🌸', label: 'Companion' },
-  { key: 'courses',   icon: '📚', label: 'Courses' },
+  { key: 'nourish',   icon: '🥗', label: 'Nourish' },
   { key: 'more',      icon: '☰',  label: 'More' },
 ];
 
@@ -115,9 +117,9 @@ const GROUPS = {
     { key: 'science',  icon: '🔬', label: 'Science' },
   ],
   more: [
-    { key: 'planner',   icon: '📅', label: 'Planner' },
+    ...(SCHEDULING_ENABLED ? [{ key: 'planner',   icon: '📅', label: 'Planner' }] : []),
     { key: 'community', icon: '👥', label: 'Community' },
-    { key: 'nourish',   icon: '🥗', label: 'Nourish' },
+    { key: 'courses',   icon: '📚', label: 'Courses' },
     { key: 'planet',    icon: '🌍', label: 'Planet' },
     { key: 'roadmap',   icon: '🗺️', label: 'Roadmap' },
   ],
@@ -1805,7 +1807,7 @@ export default function Dashboard() {
             {NAV.filter(n => !n.adminOnly || isAdmin).map(n=>{
               const active = tab===n.key || groupOf(tab)===n.key;
               const go = ()=>{
-                if(n.key==='more'){ setTab('planner'); return; }
+                if(n.key==='more'){ setTab(SCHEDULING_ENABLED ? 'planner' : 'community'); return; }
                 if(n.key==='companion'){ setCompanionView('companion'); }
                 setTab(n.key);
               };
@@ -1931,7 +1933,7 @@ export default function Dashboard() {
           <p style={{fontSize:13,color:'#888'}}>{sustainMode?'🌟 Sustain Mode':`Week ${week} of 4`} · Day {day} · {Math.max(0, allHabits.length - doneCount)} habits remaining</p>
           </div>
         
-        <DailySchedulingPrompt userId={userId} habits={allHabits} routines={routineList} chronotype={chronotype} />
+        {SCHEDULING_ENABLED && <DailySchedulingPrompt userId={userId} habits={allHabits} routines={routineList} chronotype={chronotype} />}
         
         <div style={{display:'grid',gridTemplateColumns:'250px 1fr',gap:18,alignItems:'start'}} className="dash-main-grid">
           <div style={{display:'inline-flex',alignItems:'center',gap:6,background:sustainMode?'#f8fcf8':'#f3f8f3',border:`1px solid ${sustainMode?'#8aad8a':'#b5ceb5'}`,borderRadius:99,padding:'4px 12px',fontSize:12,color:'#5a7a5a',fontWeight:500,marginTop:8}}>
@@ -2823,12 +2825,12 @@ export default function Dashboard() {
         <div style={{overflowX:'hidden'}}>
           {tab==='dashboard'  && <TabDashboard/>}
           {tab==='habits'     && <TabHabits/>}
-          {tab==='companion'  && <TabCompanion key={companionView} userId={userId} toast={toast} initialView={companionView} onCustomise={()=>setTab('settings')} onNavigate={(t)=>setTab(t)}/>}
+          {tab==='companion'  && <TabCompanion key={companionView} userId={userId} toast={toast} initialView={companionView} onCustomise={()=>setTab('settings')} onNavigate={(t)=>setTab(t)} onHealthDetails={()=>setHealthInfoOpen(true)}/>}
 
           {tab==='science'    && <TabHabitReview habits={habits} customHabits={customHabits}/>}
           {tab==='nourish'    && <TabNourish userId={userId} coins={coins} setStats={setStats} toast={toast}/>}
           {tab==='routines'   && <TabRoutinesEnhanced routineLog={routineLog} setRoutineLog={setRoutineLog} routineFreqs={routineFreqs} setRoutineFreqs={setRoutineFreqs} coins={coins} userId={userId} toast={toast} allHabits={allHabits}/>}
-          {tab==='planner'    && <TabPlanner/>}
+          {tab==='planner' && SCHEDULING_ENABLED && <TabPlanner/>}
           {tab==='planet'     && <TabPlanet/>}
           {tab==='community'  && <TabCommunity/>}
           {tab==='settings'   && <TabSettings/>}
